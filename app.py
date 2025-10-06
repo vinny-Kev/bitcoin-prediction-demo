@@ -43,7 +43,7 @@ def get_api_headers():
     """Get headers with API key if available"""
     headers = {"Content-Type": "application/json"}
     if st.session_state.api_key:
-        headers["X-API-Key"] = st.session_state.api_key
+        headers["Authorization"] = f"Bearer {st.session_state.api_key}"
     return headers
 
 def check_api_health():
@@ -62,8 +62,10 @@ def check_api_health():
 def get_usage_info():
     """Get current API usage information"""
     try:
-        headers = get_api_headers()
-        response = requests.get(f"{API_URL}/usage", headers=headers, timeout=10)
+        headers = {}
+        if st.session_state.api_key:
+            headers["Authorization"] = f"Bearer {st.session_state.api_key}"
+        response = requests.get(f"{API_URL}/api-keys/usage", headers=headers, timeout=10)
         if response.status_code == 200:
             return response.json()
         return None
@@ -97,25 +99,38 @@ def make_prediction(symbol="BTCUSDT", interval="1m"):
             timeout=45
         )
         
-        # Update usage info from response headers
-        if 'X-RateLimit-Remaining' in response.headers:
-            st.session_state.usage_info = {
-                'remaining': int(response.headers.get('X-RateLimit-Remaining', 0)),
-                'limit': int(response.headers.get('X-RateLimit-Limit', 0)),
-                'reset': response.headers.get('X-RateLimit-Reset', '')
-            }
-        
-        # Track guest usage
+        # Check if this was a guest request (no API key)
+        # Backend increments guest usage automatically, so we track it here too
         if not st.session_state.api_key:
-            st.session_state.guest_usage_count += 1
+            # Only increment on success or rate limit (403)
+            if response.status_code in [200, 403]:
+                st.session_state.guest_usage_count += 1
         
         response.raise_for_status()
-        return response.json()
+        result = response.json()
+        
+        # Refresh usage info after successful prediction
+        if st.session_state.api_key:
+            updated_usage = get_usage_info()
+            if updated_usage:
+                st.session_state.usage_info = updated_usage
+        
+        return result
+        
     except requests.exceptions.HTTPError as e:
         if e.response.status_code == 429:
-            return {"error": "Rate limit exceeded", "rate_limit": True}
+            error_data = e.response.json() if e.response.headers.get('content-type') == 'application/json' else {}
+            return {"error": error_data.get('detail', 'Rate limit exceeded'), "rate_limit": True}
         elif e.response.status_code == 403:
-            return {"error": "Invalid or expired API key", "auth_error": True}
+            error_data = e.response.json() if e.response.headers.get('content-type') == 'application/json' else {}
+            error_msg = error_data.get('detail', 'Access denied')
+            # Check if it's guest limit or auth error
+            if 'Free trial limit' in error_msg or 'free predictions' in error_msg.lower():
+                st.session_state.guest_usage_count = 3  # Sync guest count
+                return {"error": error_msg, "guest_limit": True}
+            return {"error": error_msg, "auth_error": True}
+        elif e.response.status_code == 401:
+            return {"error": "Invalid API key", "auth_error": True}
         return {"error": f"HTTP error: {e.response.status_code} - {e.response.text}"}
     except requests.exceptions.Timeout:
         return {"error": "Prediction timeout - API is taking too long to respond"}
@@ -430,12 +445,20 @@ with st.sidebar:
         # Get and display usage info
         usage = get_usage_info()
         if usage:
-            if usage.get('tier') == 'admin':
-                st.info("🌟 **Admin Access** - Unlimited usage")
+            user_type = usage.get('user_type', 'authenticated')
+            
+            if user_type == 'authenticated':
+                # Authenticated user with rate limits
+                name = usage.get('name', 'User')
+                rate_limit = usage.get('rate_limit', 'N/A')
+                calls_remaining = usage.get('calls_remaining', 0)
+                
+                st.info(f"👤 **{name}**")
+                st.caption(f"Limit: {rate_limit}")
+                st.metric("Calls Available", f"{calls_remaining} calls/min")
             else:
-                remaining = usage.get('calls_remaining', 0)
-                limit = usage.get('rate_limit', 0)
-                st.metric("Requests Remaining", f"{remaining}/{limit} per min")
+                # Admin or other special access
+                st.info("🌟 **Premium Access**")
         
         if st.button("🔄 Change API Key"):
             st.session_state.api_key = None
@@ -572,21 +595,33 @@ with col1:
                 result = make_prediction()
                 
                 if 'error' in result:
+                    # Handle guest limit errors
+                    if result.get('guest_limit'):
+                        st.error(f"""
+                        🚫 **{result['error']}**
+                        
+                        You've used all your free predictions. Enter an API key in the sidebar to continue!
+                        """)
+                        st.info("💡 Contact Kevin Maglaqui at kevinroymaglaqui27@gmail.com for an API key")
+                    
                     # Handle rate limit errors
-                    if result.get('rate_limit'):
-                        st.error("""
+                    elif result.get('rate_limit'):
+                        st.error(f"""
                         ⏱️ **Rate Limit Exceeded**
                         
-                        You've made too many requests. Please wait a moment or enter your API key for higher limits.
+                        {result['error']}
+                        
+                        Please wait before making another prediction.
                         """)
-                        st.info("💡 Get an API key in the sidebar for unlimited access!")
                     
                     # Handle auth errors
                     elif result.get('auth_error'):
-                        st.error("""
+                        st.error(f"""
                         🔑 **Authentication Error**
                         
-                        Your API key is invalid or expired. Please check your key in the sidebar.
+                        {result['error']}
+                        
+                        Please check your API key in the sidebar.
                         """)
                         st.session_state.api_key = None
                         if st.button("🔄 Update API Key"):
