@@ -32,6 +32,8 @@ if 'prediction_count' not in st.session_state:
     st.session_state.prediction_count = 0
 if 'predictions_history' not in st.session_state:
     st.session_state.predictions_history = []
+if 'latest_prediction' not in st.session_state:
+    st.session_state.latest_prediction = None
 
 # API Functions - Define early so they can be used anywhere
 def check_api_health():
@@ -123,8 +125,8 @@ def fetch_chart_data(interval="5m", limit=200):
         error_msg = str(e)
         return None, error_msg
 
-def create_price_chart(df, show_indicators=True, data_source="Binance"):
-    """Create an interactive price chart with technical indicators"""
+def create_price_chart(df, show_indicators=True, data_source="Binance", prediction_result=None):
+    """Create an interactive price chart with technical indicators and optional prediction overlay"""
     fig = go.Figure()
     
     # Candlestick chart
@@ -180,8 +182,79 @@ def create_price_chart(df, show_indicators=True, data_source="Binance"):
             fillcolor='rgba(139, 92, 246, 0.1)'
         ))
     
+    # Add prediction overlay if provided
+    if prediction_result and 'next_periods' in prediction_result:
+        current_price = prediction_result['current_price']
+        last_time = df.index[-1]
+        
+        # Estimate time intervals based on chart data
+        if len(df) > 1:
+            time_delta = (df.index[-1] - df.index[-2])
+        else:
+            time_delta = timedelta(minutes=5)
+        
+        # Create prediction line
+        prediction_times = [last_time]
+        prediction_prices = [current_price]
+        
+        for period in prediction_result['next_periods']:
+            prediction_times.append(last_time + (time_delta * period['period']))
+            prediction_prices.append(period['estimated_price'])
+        
+        # Determine color based on prediction
+        pred_label = prediction_result.get('prediction_label', '')
+        if 'Upward' in pred_label:
+            pred_color = '#10b981'  # Green
+            pred_name = '▲ AI Prediction: Upward'
+        elif 'Downward' in pred_label:
+            pred_color = '#ef4444'  # Red
+            pred_name = '▼ AI Prediction: Downward'
+        else:
+            pred_color = '#6b7280'  # Gray
+            pred_name = '◯ AI Prediction: Neutral'
+        
+        # Add prediction line
+        fig.add_trace(go.Scatter(
+            x=prediction_times,
+            y=prediction_prices,
+            mode='lines+markers',
+            name=pred_name,
+            line=dict(color=pred_color, width=3, dash='dash'),
+            marker=dict(size=10, symbol='star'),
+            opacity=0.8
+        ))
+        
+        # Add confidence band
+        confidence = prediction_result.get('confidence', 0)
+        upper_band = [p * (1 + (1 - confidence) * 0.02) for p in prediction_prices]
+        lower_band = [p * (1 - (1 - confidence) * 0.02) for p in prediction_prices]
+        
+        fig.add_trace(go.Scatter(
+            x=prediction_times,
+            y=upper_band,
+            mode='lines',
+            name='Confidence Upper',
+            line=dict(width=0),
+            showlegend=False,
+            hoverinfo='skip'
+        ))
+        
+        fig.add_trace(go.Scatter(
+            x=prediction_times,
+            y=lower_band,
+            mode='lines',
+            name='Confidence Lower',
+            line=dict(width=0),
+            fill='tonexty',
+            fillcolor=f'rgba({"16, 185, 129" if "Upward" in pred_label else "239, 68, 68" if "Downward" in pred_label else "107, 114, 128"}, 0.1)',
+            showlegend=False,
+            hoverinfo='skip'
+        ))
+    
     # Dynamic title based on data source
     chart_title = f'Bitcoin Price Chart - Live Data ({data_source})'
+    if prediction_result:
+        chart_title += ' with AI Prediction Overlay'
     
     # Update layout
     fig.update_layout(
@@ -396,7 +469,17 @@ with col1:
                 if "CryptoCompare" in status:
                     st.info("📊 **Chart Data:** Using CryptoCompare (Binance unavailable in this region)")
                 
-                chart = create_price_chart(chart_data, show_indicators=True, data_source=chart_source)
+                # Show toggle for prediction overlay if prediction exists
+                show_prediction = False
+                if st.session_state.latest_prediction:
+                    show_prediction = st.checkbox("Show AI Prediction Overlay", value=True, 
+                                                  help="Display the latest AI prediction on the chart")
+                
+                # Create chart with or without prediction overlay
+                prediction_to_show = st.session_state.latest_prediction if show_prediction else None
+                chart = create_price_chart(chart_data, show_indicators=True, 
+                                          data_source=chart_source, 
+                                          prediction_result=prediction_to_show)
                 st.plotly_chart(chart, use_container_width=True)
             else:
                 st.error(f"⚠️ **Unable to load chart data**")
@@ -501,6 +584,8 @@ with col1:
                     # Increment counter
                     st.session_state.prediction_count += 1
                     st.session_state.predictions_history.append(result)
+                    # Store latest prediction for chart overlay
+                    st.session_state.latest_prediction = result
                     
                     # Display prediction
                     st.markdown("---")
@@ -592,25 +677,40 @@ with col2:
     # Get model info
     info = get_model_info()
     
-    if 'error' not in info and 'metadata' in info:
-        metadata = info['metadata']
+    if 'error' not in info:
+        # Extract metrics - they can be at root level or nested in metadata
+        metadata = info.get('metadata', {})
+        performance = info.get('performance', metadata.get('performance', {}))
         
-        st.metric("Features", info.get('feature_count', 'N/A'))
+        st.metric("Features", info.get('feature_count', info.get('n_features', 'N/A')))
         st.metric("Sequence Length", info.get('sequence_length', 'N/A'))
-        st.metric("Train Samples", metadata.get('train_samples', 'N/A'))
-        st.metric("Test Samples", metadata.get('test_samples', 'N/A'))
         
-        if 'test_accuracy' in metadata:
-            st.metric("Test Accuracy", f"{metadata['test_accuracy']:.2%}")
+        # Try to get train/test samples from different possible locations
+        train_samples = info.get('train_samples', metadata.get('train_samples', 'N/A'))
+        test_samples = info.get('test_samples', metadata.get('test_samples', 'N/A'))
+        st.metric("Train Samples", train_samples)
+        st.metric("Test Samples", test_samples)
         
-        if 'cv_mean_accuracy' in metadata:
-            st.metric("CV Accuracy (Mean)", f"{metadata['cv_mean_accuracy']:.2%}")
-            st.caption(f"± {metadata.get('cv_std_accuracy', 0):.2%}")
+        # Extract accuracy from performance dict or direct metadata
+        test_accuracy = performance.get('test_accuracy', metadata.get('performance', {}).get('test', {}).get('accuracy', None))
+        if test_accuracy:
+            st.metric("Test Accuracy", f"{test_accuracy:.2%}")
+        
+        # Extract F1 score
+        test_f1 = performance.get('test_f1', metadata.get('performance', {}).get('test', {}).get('f1_macro', None))
+        if test_f1:
+            st.metric("Test F1 Score", f"{test_f1:.3f}")
+        
+        # Extract ROC AUC
+        test_roc = performance.get('test_roc_auc', metadata.get('performance', {}).get('test', {}).get('roc_auc_ovr', None))
+        if test_roc:
+            st.metric("ROC AUC", f"{test_roc:.3f}")
         
         # Training date
-        if 'training_date' in metadata:
+        training_date = info.get('training_date', metadata.get('training_date', None))
+        if training_date:
             st.markdown("---")
-            st.caption(f"Last Trained: {metadata['training_date']}")
+            st.caption(f"Last Trained: {training_date}")
     
     # Prediction history
     if st.session_state.predictions_history:
