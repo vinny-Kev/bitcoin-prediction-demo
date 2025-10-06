@@ -4,7 +4,6 @@ port = 8501
 
 [browser]
 gatherUsageStats = false
-serverAddress = "localhost"
 
 [client]
 showErrorDetails = true
