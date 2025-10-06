@@ -387,9 +387,9 @@ with st.sidebar:
     
     • **CatBoost Algorithm** (40% weight)
     • **Random Forest** (30% weight)  
-    • **LSTM Neural Network** (30% weight)
+    • **Logistic Regression** (30% weight)
     
-    **Technical Features**: 20 optimized indicators from 70+ analyzed
+    **Technical Features**: 70 optimized indicators analyzed
     
     **Data Source**: Real-time API
     
