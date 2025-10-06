@@ -1,7 +1,7 @@
 """
 Kevin Roy V. Maglaqui
 2025 - 10 - 04
-Bitcoin AI Price Predictor - Demo
+Bitcoin AI Price Forecaster - Demo
 Predicts large Bitcoin price movements using ensemble ML models
 """
 
@@ -14,7 +14,7 @@ import json
 
 # Page config
 st.set_page_config(
-    page_title="Bitcoin AI Predictor",
+    page_title="Bitcoin AI Forecast",
     page_icon="₿",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -30,6 +30,85 @@ if 'prediction_count' not in st.session_state:
     st.session_state.prediction_count = 0
 if 'predictions_history' not in st.session_state:
     st.session_state.predictions_history = []
+
+# API Functions - Define early so they can be used anywhere
+def check_api_health():
+    try:
+        response = requests.get(f"{API_URL}/health", timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        return data
+    except requests.exceptions.Timeout:
+        return {"error": "API timeout - server may be slow or unavailable"}
+    except requests.exceptions.ConnectionError:
+        return {"error": "Cannot connect to API - check your internet connection"}
+    except Exception as e:
+        return {"error": f"API health check failed: {str(e)}"}
+
+@st.cache_data(ttl=3600)  # Cache for 1 hour
+def get_model_info():
+    try:
+        response = requests.get(f"{API_URL}/model/info", timeout=15)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.Timeout:
+        return {"error": "API timeout while fetching model info"}
+    except requests.exceptions.ConnectionError:
+        return {"error": "Cannot connect to API"}
+    except Exception as e:
+        return {"error": f"Failed to get model info: {str(e)}"}
+
+def make_prediction(symbol="BTCUSDT", interval="1m"):
+    try:
+        response = requests.post(
+            f"{API_URL}/predict",
+            json={
+                "symbol": symbol,
+                "interval": interval,
+                "use_live_data": True
+            },
+            timeout=45
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.Timeout:
+        return {"error": "Prediction timeout - API is taking too long to respond"}
+    except requests.exceptions.ConnectionError:
+        return {"error": "Cannot connect to API for prediction"}
+    except requests.exceptions.HTTPError as e:
+        return {"error": f"HTTP error: {e.response.status_code} - {e.response.text}"}
+    except Exception as e:
+        return {"error": f"Prediction failed: {str(e)}"}
+
+def get_model_age_warning():
+    try:
+        info = get_model_info()
+        if 'metadata' in info and 'training_date' in info['metadata']:
+            training_date_str = info['metadata']['training_date']
+            
+            # Handle format like "20251006_112413"
+            if '_' in training_date_str and len(training_date_str) == 15:
+                date_part = training_date_str[:8]  # 20251006
+                time_part = training_date_str[9:]  # 112413
+                training_date = datetime.strptime(f"{date_part}_{time_part}", "%Y%m%d_%H%M%S")
+            else:
+                # Try ISO format
+                training_date = datetime.fromisoformat(training_date_str.replace('Z', '+00:00'))
+                training_date = training_date.replace(tzinfo=None)
+            
+            age_days = (datetime.now() - training_date).days
+            
+            if age_days > 14:
+                return f"**Model is {age_days} days old.** For optimal performance with current market conditions, contact {CONTACT_EMAIL} to update the model with fresh market data. The API is available at {API_URL}"
+            elif age_days > 7:
+                return f"**Model is {age_days} days old.** Consider updating for enhanced accuracy with recent market patterns."
+            elif age_days > 3:
+                return f"Model is {age_days} days old - performing well with current data."
+            else:
+                return f"Model is fresh ({age_days} days old) - optimal performance expected."
+        return "Model age information unavailable."
+    except Exception as e:
+        return f"Unable to verify model freshness. Contact support for current model status."
 
 # Custom CSS
 st.markdown("""
@@ -106,6 +185,20 @@ with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/4/46/Bitcoin.svg/1024px-Bitcoin.svg.png?20140331024207", width=100)
     st.markdown("---")
     
+    # API Status Check
+    st.markdown("### API Status")
+    api_status = check_api_health()
+    if api_status and "error" not in api_status and api_status.get('status') == 'healthy':
+        st.success("**API Connected** ✓")
+        st.caption(f"Models Loaded: {'Yes' if api_status.get('model_loaded') else 'No'}")
+    elif api_status and "error" in api_status:
+        st.error(f"**API Error**")
+        st.caption(api_status['error'])
+    else:
+        st.warning("**API Status Unknown**")
+    
+    st.markdown("---")
+    
     # Demo counter
     remaining = FREE_PREDICTIONS - st.session_state.prediction_count
     st.markdown(f"""
@@ -151,59 +244,6 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("**Built by Kevin Roy Maglaqui**")
 
-# Check API health
-def check_api_health():
-    try:
-        response = requests.get(f"{API_URL}/health", timeout=5)
-        return response.json()
-    except:
-        return None
-
-# Get model info
-@st.cache_data(ttl=3600)  # Cache for 1 hour
-def get_model_info():
-    try:
-        response = requests.get(f"{API_URL}/model/info", timeout=10)
-        return response.json()
-    except Exception as e:
-        return {"error": str(e)}
-
-# Make prediction
-def make_prediction(symbol="BTCUSDT", interval="1m"):
-    try:
-        response = requests.post(
-            f"{API_URL}/predict",
-            json={
-                "symbol": symbol,
-                "interval": interval,
-                "use_live_data": True
-            },
-            timeout=30
-        )
-        return response.json()
-    except Exception as e:
-        return {"error": str(e)}
-
-# Calculate model age and provide professional validation messaging
-def get_model_age_warning():
-    try:
-        info = get_model_info()
-        if 'metadata' in info and 'training_date' in info['metadata']:
-            training_date = datetime.fromisoformat(info['metadata']['training_date'].replace('Z', '+00:00'))
-            age_days = (datetime.now() - training_date.replace(tzinfo=None)).days
-            
-            if age_days > 14:
-                return f"**Model is {age_days} days old.** For optimal performance with current market conditions, contact {CONTACT_EMAIL} to update the model with fresh market data. The API is available at {API_URL}"
-            elif age_days > 7:
-                return f"**Model is {age_days} days old.** Consider updating for enhanced accuracy with recent market patterns."
-            elif age_days > 3:
-                return f"Model is {age_days} days old - performing well with current data."
-            else:
-                return f"Model is fresh ({age_days} days old) - optimal performance expected."
-        return "Model age information unavailable."
-    except:
-        return "Unable to verify model freshness. Contact support for current model status."
-
 # Main content
 col1, col2 = st.columns([2, 1])
 
@@ -212,15 +252,36 @@ with col1:
     
     # Check API status
     health = check_api_health()
-    if health is None or not health.get('model_loaded', False):
-        st.error("**API Service Unavailable** - Models not loaded. Please verify the API server is running.")
-        st.code("uvicorn prediction_api:app --reload", language="bash")
+    
+    # Debug info - can be removed later
+    with st.expander("🔍 API Connection Status (Debug Info)"):
+        st.write(f"**API URL:** {API_URL}")
+        st.write(f"**Health Check Response:**")
+        st.json(health)
+        
+        # Test additional endpoints
+        if st.button("Test Model Info Endpoint"):
+            model_info = get_model_info()
+            st.json(model_info)
+    
+    if health is None:
+        st.error("**API Service Unavailable** - No response from API server.")
+        st.info(f"Attempting to connect to: {API_URL}")
+        st.stop()
+    elif "error" in health:
+        st.error(f"**API Error:** {health['error']}")
+        st.info(f"API URL: {API_URL}")
+        st.stop()
+    elif not health.get('model_loaded', False):
+        st.warning("**Models Not Loaded** - API is running but models are not ready.")
+        st.info("Please wait for models to load or check API server logs.")
         st.stop()
     
     # Model age warning
     age_warning = get_model_age_warning()
     if age_warning:
-        if "contact" in age_warning.lower() or "days old" in age_warning and int(age_warning.split()[2]) > 14:
+        # Check if it's a critical warning (contact needed)
+        if "contact" in age_warning.lower() or age_warning.startswith("**Model is") and "14" in age_warning:
             st.markdown(f"""
             <div class="warning-box">
                 <strong>Model Status:</strong> {age_warning}
@@ -249,6 +310,31 @@ with col1:
                 
                 if 'error' in result:
                     st.error(f"**Prediction failed:** {result['error']}")
+                    
+                    # Provide helpful troubleshooting information
+                    with st.expander("🔧 Troubleshooting Information"):
+                        st.markdown("""
+                        **Common API Issues:**
+                        
+                        1. **Server Error (500)**: The API encountered an internal error
+                           - This may be due to data processing issues
+                           - The model may need fresh data
+                           - Contact support for assistance
+                        
+                        2. **Timeout**: The API is taking too long to respond
+                           - The server may be cold-starting (first request after idle)
+                           - Try again in a few moments
+                        
+                        3. **Connection Error**: Cannot reach the API
+                           - Check your internet connection
+                           - Verify API is running
+                        
+                        **Contact Information:**
+                        - Email: kevinroymaglaqui29@gmail.com
+                        - API URL: https://btc-forecast-api.onrender.com
+                        
+                        For immediate assistance with model updates or API issues, please reach out.
+                        """)
                 else:
                     # Increment counter
                     st.session_state.prediction_count += 1
