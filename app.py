@@ -342,14 +342,17 @@ with col1:
     # Live Bitcoin Price Chart (shown on startup)
     st.markdown("### Live Bitcoin Market Data")
     
-    # Note about Binance API restrictions
-    st.info("📊 **Note:** Live chart data is fetched from Binance API. If unavailable due to regional restrictions, the AI prediction feature below will still work using your API server.")
-    
-    # Fetch and display current price (with timeout protection)
+    # Fetch and display current price (with multiple fallback sources)
     price_available = False
+    data_source = "Unknown"
     try:
         with st.spinner("Fetching current Bitcoin price..."):
             current_data = get_current_bitcoin_price()
+            data_source = current_data.get('source', 'Binance')
+        
+        # Show data source
+        if data_source != 'Binance':
+            st.info(f"📊 **Data Source:** {data_source} (Binance unavailable in this region)")
         
         col_price1, col_price2, col_price3, col_price4 = st.columns(4)
         with col_price1:
@@ -367,10 +370,9 @@ with col1:
         price_available = True
     except Exception as e:
         error_msg = str(e)
-        if "451" in error_msg:
-            st.warning("⚠️ **Binance API Unavailable** - Regional restrictions detected. The chart data cannot be displayed, but AI predictions below still work!")
-        else:
-            st.warning(f"Unable to fetch current price: {error_msg}")
+        st.error(f"⚠️ **Unable to fetch Bitcoin price data**")
+        st.caption(f"Error: {error_msg[:200]}")
+        st.info("💡 **The AI prediction feature below still works!** It uses your deployed API server for predictions.")
     
     # Interactive chart with timeframe selector (only show if we can fetch data)
     if price_available:

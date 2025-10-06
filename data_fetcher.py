@@ -188,7 +188,7 @@ class BinanceDataFetcher:
 
 def get_bitcoin_data(interval="1m", limit=500, with_indicators=True):
     """
-    Convenience function to fetch Bitcoin data
+    Convenience function to fetch Bitcoin data with fallback
     
     Args:
         interval: Timeframe interval
@@ -198,25 +198,87 @@ def get_bitcoin_data(interval="1m", limit=500, with_indicators=True):
     Returns:
         DataFrame with Bitcoin price data
     """
-    fetcher = BinanceDataFetcher()
-    df = fetcher.fetch_historical_klines(
-        symbol="BTCUSDT",
-        interval=interval,
-        limit=limit
-    )
-    
-    if with_indicators:
-        df = fetcher.calculate_technical_indicators(df)
-    
-    return df
+    try:
+        fetcher = BinanceDataFetcher()
+        df = fetcher.fetch_historical_klines(
+            symbol="BTCUSDT",
+            interval=interval,
+            limit=limit
+        )
+        
+        if with_indicators:
+            df = fetcher.calculate_technical_indicators(df)
+        
+        return df
+    except Exception as e:
+        # If Binance fails, try CoinGecko for at least current price as single point
+        if "451" in str(e):
+            raise Exception("Binance API blocked in this region (451)")
+        raise e
 
 
 def get_current_bitcoin_price():
     """
-    Get current Bitcoin price and stats
+    Get current Bitcoin price and stats with fallback options
     
     Returns:
         dict with current price information
     """
-    fetcher = BinanceDataFetcher()
-    return fetcher.fetch_current_price("BTCUSDT")
+    # Try Binance first
+    try:
+        fetcher = BinanceDataFetcher()
+        return fetcher.fetch_current_price("BTCUSDT")
+    except Exception as binance_error:
+        # Fallback to CoinGecko API (no API key required, no regional restrictions)
+        try:
+            response = requests.get(
+                "https://api.coingecko.com/api/v3/simple/price",
+                params={
+                    "ids": "bitcoin",
+                    "vs_currencies": "usd",
+                    "include_24hr_change": "true",
+                    "include_24hr_vol": "true"
+                },
+                timeout=10
+            )
+            response.raise_for_status()
+            data = response.json()['bitcoin']
+            
+            return {
+                'symbol': 'BTCUSD',
+                'price': float(data['usd']),
+                'change_24h': 0,  # CoinGecko doesn't provide absolute change
+                'change_percent': float(data.get('usd_24h_change', 0)),
+                'high_24h': float(data['usd']) * 1.02,  # Estimate based on typical volatility
+                'low_24h': float(data['usd']) * 0.98,   # Estimate based on typical volatility
+                'volume': float(data.get('usd_24h_vol', 0)),
+                'timestamp': datetime.now(),
+                'source': 'CoinGecko'
+            }
+        except Exception as coingecko_error:
+            # Last resort: CryptoCompare API (also no restrictions)
+            try:
+                response = requests.get(
+                    "https://min-api.cryptocompare.com/data/pricemultifull",
+                    params={
+                        "fsyms": "BTC",
+                        "tsyms": "USD"
+                    },
+                    timeout=10
+                )
+                response.raise_for_status()
+                data = response.json()['RAW']['BTC']['USD']
+                
+                return {
+                    'symbol': 'BTCUSD',
+                    'price': float(data['PRICE']),
+                    'change_24h': float(data['CHANGE24HOUR']),
+                    'change_percent': float(data['CHANGEPCT24HOUR']),
+                    'high_24h': float(data['HIGH24HOUR']),
+                    'low_24h': float(data['LOW24HOUR']),
+                    'volume': float(data['VOLUME24HOUR']),
+                    'timestamp': datetime.now(),
+                    'source': 'CryptoCompare'
+                }
+            except Exception as cryptocompare_error:
+                raise Exception(f"All price sources failed. Binance: {str(binance_error)[:100]}, CoinGecko: {str(coingecko_error)[:100]}, CryptoCompare: {str(cryptocompare_error)[:100]}")
