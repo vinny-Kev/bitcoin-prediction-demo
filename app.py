@@ -11,6 +11,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import json
+from data_fetcher import get_bitcoin_data, get_current_bitcoin_price
 
 # Page config
 st.set_page_config(
@@ -109,6 +110,95 @@ def get_model_age_warning():
         return "Model age information unavailable."
     except Exception as e:
         return f"Unable to verify model freshness. Contact support for current model status."
+
+# Chart creation functions
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def fetch_chart_data(interval="5m", limit=200):
+    """Fetch data for the startup chart"""
+    try:
+        df = get_bitcoin_data(interval=interval, limit=limit, with_indicators=True)
+        return df
+    except Exception as e:
+        st.error(f"Failed to fetch chart data: {str(e)}")
+        return None
+
+def create_price_chart(df, show_indicators=True):
+    """Create an interactive price chart with technical indicators"""
+    fig = go.Figure()
+    
+    # Candlestick chart
+    fig.add_trace(go.Candlestick(
+        x=df.index,
+        open=df['open'],
+        high=df['high'],
+        low=df['low'],
+        close=df['close'],
+        name='BTC Price',
+        increasing_line_color='#10b981',
+        decreasing_line_color='#ef4444'
+    ))
+    
+    if show_indicators and 'SMA_20' in df.columns:
+        # Add moving averages
+        fig.add_trace(go.Scatter(
+            x=df.index,
+            y=df['SMA_20'],
+            mode='lines',
+            name='SMA 20',
+            line=dict(color='#3b82f6', width=1.5),
+            opacity=0.7
+        ))
+        
+        fig.add_trace(go.Scatter(
+            x=df.index,
+            y=df['SMA_50'],
+            mode='lines',
+            name='SMA 50',
+            line=dict(color='#f59e0b', width=1.5),
+            opacity=0.7
+        ))
+        
+        # Add Bollinger Bands
+        fig.add_trace(go.Scatter(
+            x=df.index,
+            y=df['BB_upper'],
+            mode='lines',
+            name='BB Upper',
+            line=dict(color='#8b5cf6', width=1, dash='dash'),
+            opacity=0.5
+        ))
+        
+        fig.add_trace(go.Scatter(
+            x=df.index,
+            y=df['BB_lower'],
+            mode='lines',
+            name='BB Lower',
+            line=dict(color='#8b5cf6', width=1, dash='dash'),
+            opacity=0.5,
+            fill='tonexty',
+            fillcolor='rgba(139, 92, 246, 0.1)'
+        ))
+    
+    # Update layout
+    fig.update_layout(
+        title={
+            'text': 'Bitcoin Price Chart (Real-time Binance Data)',
+            'x': 0.5,
+            'xanchor': 'center'
+        },
+        xaxis_title='Time',
+        yaxis_title='Price (USD)',
+        template='plotly_white',
+        hovermode='x unified',
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)',
+        font=dict(color='#374151', size=12),
+        xaxis_rangeslider_visible=False,
+        height=500,
+        margin=dict(l=50, r=50, t=80, b=50)
+    )
+    
+    return fig
 
 # Custom CSS
 st.markdown("""
@@ -248,6 +338,49 @@ with st.sidebar:
 col1, col2 = st.columns([2, 1])
 
 with col1:
+    # Live Bitcoin Price Chart (shown on startup)
+    st.markdown("### Live Bitcoin Market Data")
+    
+    # Fetch and display current price
+    try:
+        current_data = get_current_bitcoin_price()
+        
+        col_price1, col_price2, col_price3, col_price4 = st.columns(4)
+        with col_price1:
+            st.metric(
+                "Current Price",
+                f"${current_data['price']:,.2f}",
+                delta=f"{current_data['change_percent']:.2f}%"
+            )
+        with col_price2:
+            st.metric("24h High", f"${current_data['high_24h']:,.2f}")
+        with col_price3:
+            st.metric("24h Low", f"${current_data['low_24h']:,.2f}")
+        with col_price4:
+            st.metric("24h Volume", f"{current_data['volume']:,.0f} BTC")
+    except Exception as e:
+        st.warning(f"Unable to fetch current price: {str(e)}")
+    
+    # Interactive chart with timeframe selector
+    chart_interval = st.selectbox(
+        "Select Timeframe",
+        options=["1m", "5m", "15m", "1h", "4h"],
+        index=1,  # Default to 5m
+        help="Choose the candlestick timeframe"
+    )
+    
+    # Fetch and display chart
+    with st.spinner("Loading chart data..."):
+        chart_data = fetch_chart_data(interval=chart_interval, limit=200)
+        
+        if chart_data is not None and not chart_data.empty:
+            chart = create_price_chart(chart_data, show_indicators=True)
+            st.plotly_chart(chart, use_container_width=True)
+        else:
+            st.error("Failed to load chart data. Please refresh the page.")
+    
+    st.markdown("---")
+    
     st.markdown("### Generate Prediction")
     
     # Check API status
