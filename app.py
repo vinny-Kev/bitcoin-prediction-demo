@@ -118,12 +118,12 @@ def fetch_chart_data(interval="5m", limit=200):
     """Fetch data for the startup chart"""
     try:
         df = get_bitcoin_data(interval=interval, limit=limit, with_indicators=True)
-        return df
+        return df, "success"
     except Exception as e:
-        st.error(f"Failed to fetch chart data: {str(e)}")
-        return None
+        error_msg = str(e)
+        return None, error_msg
 
-def create_price_chart(df, show_indicators=True):
+def create_price_chart(df, show_indicators=True, data_source="Binance"):
     """Create an interactive price chart with technical indicators"""
     fig = go.Figure()
     
@@ -180,10 +180,13 @@ def create_price_chart(df, show_indicators=True):
             fillcolor='rgba(139, 92, 246, 0.1)'
         ))
     
+    # Dynamic title based on data source
+    chart_title = f'Bitcoin Price Chart - Live Data ({data_source})'
+    
     # Update layout
     fig.update_layout(
         title={
-            'text': 'Bitcoin Price Chart (Real-time Binance Data)',
+            'text': chart_title,
             'x': 0.5,
             'xanchor': 'center'
         },
@@ -384,21 +387,21 @@ with col1:
         )
         
         # Fetch and display chart
-        try:
-            with st.spinner("Loading chart data..."):
-                chart_data = fetch_chart_data(interval=chart_interval, limit=200)
+        with st.spinner("Loading chart data..."):
+            chart_data, status = fetch_chart_data(interval=chart_interval, limit=200)
+            
+            if chart_data is not None and not chart_data.empty:
+                # Determine data source from error message or default to Binance
+                chart_source = "CryptoCompare" if "CryptoCompare" in status or "Binance" in status else "Binance"
+                if "CryptoCompare" in status:
+                    st.info("📊 **Chart Data:** Using CryptoCompare (Binance unavailable in this region)")
                 
-                if chart_data is not None and not chart_data.empty:
-                    chart = create_price_chart(chart_data, show_indicators=True)
-                    st.plotly_chart(chart, use_container_width=True)
-                else:
-                    st.error("Failed to load chart data.")
-        except Exception as e:
-            error_msg = str(e)
-            if "451" in error_msg:
-                st.warning("⚠️ Chart unavailable due to Binance API restrictions in your region.")
+                chart = create_price_chart(chart_data, show_indicators=True, data_source=chart_source)
+                st.plotly_chart(chart, use_container_width=True)
             else:
-                st.error(f"Chart Error: {error_msg}")
+                st.error(f"⚠️ **Unable to load chart data**")
+                st.caption(f"Error: {status[:200]}")
+                st.info("💡 The AI prediction feature below still works!")
     else:
         st.info("💡 **Chart temporarily unavailable** - Proceed to AI Prediction below to get forecasts!")
     

@@ -186,6 +186,69 @@ class BinanceDataFetcher:
         return df
 
 
+def fetch_cryptocompare_historical(interval="1m", limit=500):
+    """
+    Fetch historical data from CryptoCompare API (fallback for Binance)
+    
+    Args:
+        interval: Timeframe (1m, 5m, 15m, 1h, 4h, 1d)
+        limit: Number of candles
+    
+    Returns:
+        DataFrame with OHLCV data
+    """
+    # Map intervals to CryptoCompare endpoints
+    interval_map = {
+        '1m': ('histominute', 1),
+        '5m': ('histominute', 5),
+        '15m': ('histominute', 15),
+        '1h': ('histohour', 1),
+        '4h': ('histohour', 4),
+        '1d': ('histoday', 1)
+    }
+    
+    endpoint_type, aggregate = interval_map.get(interval, ('histominute', 1))
+    
+    try:
+        url = f"https://min-api.cryptocompare.com/data/v2/{endpoint_type}"
+        params = {
+            'fsym': 'BTC',
+            'tsym': 'USD',
+            'limit': limit,
+            'aggregate': aggregate
+        }
+        
+        response = requests.get(url, params=params, timeout=15)
+        response.raise_for_status()
+        data = response.json()
+        
+        if data['Response'] != 'Success':
+            raise Exception(f"CryptoCompare API error: {data.get('Message', 'Unknown error')}")
+        
+        # Convert to DataFrame
+        candles = data['Data']['Data']
+        df = pd.DataFrame(candles)
+        
+        # Convert timestamp and rename columns to match Binance format
+        df['timestamp'] = pd.to_datetime(df['time'], unit='s')
+        df = df.rename(columns={
+            'open': 'open',
+            'high': 'high', 
+            'low': 'low',
+            'close': 'close',
+            'volumefrom': 'volume'
+        })
+        
+        # Select and reorder columns
+        df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
+        df.set_index('timestamp', inplace=True)
+        
+        return df
+        
+    except Exception as e:
+        raise Exception(f"CryptoCompare historical data fetch failed: {str(e)}")
+
+
 def get_bitcoin_data(interval="1m", limit=500, with_indicators=True):
     """
     Convenience function to fetch Bitcoin data with fallback
@@ -198,6 +261,7 @@ def get_bitcoin_data(interval="1m", limit=500, with_indicators=True):
     Returns:
         DataFrame with Bitcoin price data
     """
+    # Try Binance first
     try:
         fetcher = BinanceDataFetcher()
         df = fetcher.fetch_historical_klines(
@@ -210,11 +274,17 @@ def get_bitcoin_data(interval="1m", limit=500, with_indicators=True):
             df = fetcher.calculate_technical_indicators(df)
         
         return df
-    except Exception as e:
-        # If Binance fails, try CoinGecko for at least current price as single point
-        if "451" in str(e):
-            raise Exception("Binance API blocked in this region (451)")
-        raise e
+    except Exception as binance_error:
+        # Fallback to CryptoCompare
+        try:
+            df = fetch_cryptocompare_historical(interval=interval, limit=limit)
+            
+            if with_indicators:
+                df = BinanceDataFetcher.calculate_technical_indicators(df)
+            
+            return df
+        except Exception as crypto_error:
+            raise Exception(f"All chart data sources failed. Binance: {str(binance_error)[:100]}, CryptoCompare: {str(crypto_error)[:100]}")
 
 
 def get_current_bitcoin_price():
