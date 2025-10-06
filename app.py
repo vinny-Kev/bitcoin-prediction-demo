@@ -280,16 +280,19 @@ with col1:
     # Model age warning
     age_warning = get_model_age_warning()
     if age_warning:
-        # Check if it's a critical warning (contact needed)
-        if "contact" in age_warning.lower() or age_warning.startswith("**Model is") and "14" in age_warning:
+        # Safely check the warning type without parsing integers
+        if "contact" in age_warning.lower():
+            # Critical warning - model is old, contact needed
             st.markdown(f"""
             <div class="warning-box">
                 <strong>Model Status:</strong> {age_warning}
             </div>
             """, unsafe_allow_html=True)
-        elif "Consider updating" in age_warning:
+        elif "Consider updating" in age_warning or "old" in age_warning.lower():
+            # Warning - model needs updating soon
             st.warning(f"**Model Status:** {age_warning}")
         else:
+            # Info - model is fresh
             st.markdown(f"""
             <div class="model-status">
                 <strong>Model Status:</strong> {age_warning}
