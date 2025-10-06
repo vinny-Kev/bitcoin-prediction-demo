@@ -647,35 +647,58 @@ with col2:
         metadata = info.get('metadata', {})
         performance = info.get('performance', metadata.get('performance', {}))
         
+        # Basic model info
         st.metric("Features", info.get('feature_count', info.get('n_features', 'N/A')))
         st.metric("Sequence Length", info.get('sequence_length', 'N/A'))
         
-        # Try to get train/test samples from different possible locations
-        train_samples = info.get('train_samples', metadata.get('train_samples', 'N/A'))
-        test_samples = info.get('test_samples', metadata.get('test_samples', 'N/A'))
-        st.metric("Train Samples", train_samples)
-        st.metric("Test Samples", test_samples)
+        # Training info
+        training_date = info.get('training_date', metadata.get('training_date', None))
+        if training_date:
+            st.caption(f"📅 Trained: {training_date}")
+        
+        st.markdown("---")
+        st.markdown("**Test Performance**")
         
         # Extract accuracy from performance dict or direct metadata
         test_accuracy = performance.get('test_accuracy', metadata.get('performance', {}).get('test', {}).get('accuracy', None))
         if test_accuracy:
-            st.metric("Test Accuracy", f"{test_accuracy:.2%}")
+            st.metric("Accuracy", f"{test_accuracy:.2%}")
         
         # Extract F1 score
         test_f1 = performance.get('test_f1', metadata.get('performance', {}).get('test', {}).get('f1_macro', None))
         if test_f1:
-            st.metric("Test F1 Score", f"{test_f1:.3f}")
+            st.metric("F1 Score", f"{test_f1:.3f}")
         
         # Extract ROC AUC
         test_roc = performance.get('test_roc_auc', metadata.get('performance', {}).get('test', {}).get('roc_auc_ovr', None))
         if test_roc:
             st.metric("ROC AUC", f"{test_roc:.3f}")
         
-        # Training date
-        training_date = info.get('training_date', metadata.get('training_date', None))
-        if training_date:
+        # Extract precision and recall from nested performance
+        nested_perf = metadata.get('performance', {}).get('test', {})
+        if nested_perf:
+            precision = nested_perf.get('precision_macro')
+            recall = nested_perf.get('recall_macro')
+            
+            if precision:
+                st.metric("Precision", f"{precision:.3f}")
+            if recall:
+                st.metric("Recall", f"{recall:.3f}")
+        
+        # Show overfitting analysis if available
+        overfitting = metadata.get('performance', {}).get('overfitting_analysis', {})
+        if overfitting:
             st.markdown("---")
-            st.caption(f"Last Trained: {training_date}")
+            st.markdown("**Model Analysis**")
+            acc_gap = overfitting.get('train_test_accuracy_gap')
+            if acc_gap:
+                st.caption(f"🔍 Accuracy Gap: {acc_gap:.2%}")
+                if acc_gap < 0.10:
+                    st.caption("✅ Low overfitting")
+                elif acc_gap < 0.20:
+                    st.caption("⚠️ Moderate overfitting")
+                else:
+                    st.caption("❌ High overfitting")
     
     # Prediction history
     if st.session_state.predictions_history:
