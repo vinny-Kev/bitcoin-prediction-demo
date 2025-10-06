@@ -1,8 +1,9 @@
 """
 Kevin Roy V. Maglaqui
-2025 - 10 - 04
+2025 - 10 - 06
 Bitcoin AI Price Forecaster - Demo
 Predicts large Bitcoin price movements using ensemble ML models
+Version: 1.1.0 - Added live charts and improved error handling
 """
 
 import streamlit as st
