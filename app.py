@@ -96,7 +96,7 @@ st.markdown("""
 st.markdown("""
 <div class="professional-header">
     <h1>₿ Bitcoin AI Price Predictor</h1>
-    <h3>Professional Machine Learning Forecasting System</h3>
+    <h3>Machine Learning Forecasting System</h3>
     <p>Predict significant Bitcoin price movements using advanced ensemble models</p>
 </div>
 """, unsafe_allow_html=True)
