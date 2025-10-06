@@ -187,18 +187,24 @@ def create_price_chart(df, show_indicators=True, data_source="Binance", predicti
         current_price = prediction_result['current_price']
         last_time = df.index[-1]
         
-        # Estimate time intervals based on chart data
-        if len(df) > 1:
-            time_delta = (df.index[-1] - df.index[-2])
+        # Calculate average time interval from the chart data
+        if len(df) >= 2:
+            time_intervals = [(df.index[i] - df.index[i-1]) for i in range(1, min(6, len(df)))]
+            avg_interval = sum(time_intervals, timedelta(0)) / len(time_intervals)
         else:
-            time_delta = timedelta(minutes=5)
+            avg_interval = timedelta(minutes=5)
         
-        # Create prediction line
+        # Get the last closing price from the chart
+        last_chart_price = float(df['close'].iloc[-1])
+        
+        # Create prediction line starting from the last chart point
         prediction_times = [last_time]
-        prediction_prices = [current_price]
+        prediction_prices = [last_chart_price]  # Start from last chart price
         
+        # Add predicted future points
         for period in prediction_result['next_periods']:
-            prediction_times.append(last_time + (time_delta * period['period']))
+            future_time = last_time + (avg_interval * period['period'])
+            prediction_times.append(future_time)
             prediction_prices.append(period['estimated_price'])
         
         # Determine color based on prediction
@@ -220,8 +226,9 @@ def create_price_chart(df, show_indicators=True, data_source="Binance", predicti
             mode='lines+markers',
             name=pred_name,
             line=dict(color=pred_color, width=3, dash='dash'),
-            marker=dict(size=10, symbol='star'),
-            opacity=0.8
+            marker=dict(size=10, symbol='star', color=pred_color),
+            opacity=0.9,
+            hovertemplate='<b>Predicted Price</b><br>$%{y:,.2f}<br>%{x}<extra></extra>'
         ))
         
         # Add confidence band
@@ -415,8 +422,183 @@ with st.sidebar:
 col1, col2 = st.columns([2, 1])
 
 with col1:
+    # Generate Prediction Section - MOVED UP TOP
+    st.markdown("### 🎯 Generate AI Prediction")
+    
+    # Check API status
+    health = check_api_health()
+    
+    if health is None:
+        st.error("**API Service Unavailable** - No response from API server.")
+        st.info(f"Attempting to connect to: {API_URL}")
+    elif "error" in health:
+        st.error(f"**API Error:** {health['error']}")
+        st.info(f"API URL: {API_URL}")
+    elif not health.get('model_loaded', False):
+        st.warning("**Models Not Loaded** - API is running but models are not ready.")
+        st.info("Please wait for models to load or check API server logs.")
+    else:
+        # Model age warning
+        age_warning = get_model_age_warning()
+        if age_warning:
+            # Safely check the warning type without parsing integers
+            if "contact" in age_warning.lower():
+                # Critical warning - model is old, contact needed
+                st.markdown(f"""
+                <div class="warning-box">
+                    <strong>Model Status:</strong> {age_warning}
+                </div>
+                """, unsafe_allow_html=True)
+            elif "Consider updating" in age_warning or "old" in age_warning.lower():
+                # Warning - model needs updating soon
+                st.warning(f"**Model Status:** {age_warning}")
+            else:
+                # Info - model is fresh
+                st.markdown(f"""
+                <div class="model-status">
+                    <strong>Model Status:</strong> {age_warning}
+                </div>
+                """, unsafe_allow_html=True)
+        
+        # Prediction button
+        if st.session_state.prediction_count >= FREE_PREDICTIONS:
+            st.error(f"**Demo limit reached.** Contact {CONTACT_EMAIL} for unlimited access and fresh model updates.")
+        else:
+            col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
+            with col_btn1:
+                predict_btn = st.button("🔮 Predict Now", use_container_width=True, type="primary")
+            with col_btn2:
+                remaining = FREE_PREDICTIONS - st.session_state.prediction_count
+                st.caption(f"**{remaining}/{FREE_PREDICTIONS}** predictions left")
+            
+            if predict_btn:
+                with st.spinner("🤖 Analyzing market data and generating prediction..."):
+                    result = make_prediction()
+                    
+                    if 'error' in result:
+                        st.error(f"**Prediction failed:** {result['error']}")
+                        
+                        # Provide helpful troubleshooting information
+                        with st.expander("🔧 Troubleshooting Information"):
+                            st.markdown("""
+                            **Common API Issues:**
+                            
+                            1. **Server Error (500)**: The API encountered an internal error
+                               - This may be due to data processing issues
+                               - The model may need fresh data
+                               - Contact support for assistance
+                            
+                            2. **Timeout**: The API is taking too long to respond
+                               - The server may be cold-starting (first request after idle)
+                               - Try again in a few moments
+                            
+                            3. **Connection Error**: Cannot reach the API
+                               - Check your internet connection
+                               - Verify API is running
+                            
+                            **Contact Information:**
+                            - Email: kevinroymaglaqui29@gmail.com
+                            - API URL: https://btc-forecast-api.onrender.com
+                            
+                            For immediate assistance with model updates or API issues, please reach out.
+                            """)
+                    else:
+                        # Increment counter
+                        st.session_state.prediction_count += 1
+                        st.session_state.predictions_history.append(result)
+                        # Store latest prediction for chart overlay
+                        st.session_state.latest_prediction = result
+                        
+                        # Display prediction
+                        st.markdown("---")
+                        st.markdown("### ✨ Prediction Results")
+                        
+                        # Prediction label
+                        label_indicators = {
+                            "No Significant Movement": "◯",
+                            "Large Upward Movement Expected": "▲",
+                            "Large Downward Movement Expected": "▼"
+                        }
+                        
+                        label = result['prediction_label']
+                        indicator = label_indicators.get(label, "●")
+                        
+                        st.markdown(f"""
+                        <div style="background: linear-gradient(135deg, #1f2937 0%, #374151 100%); 
+                                    padding: 32px; border-radius: 16px; color: white; text-align: center;
+                                    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);">
+                            <h1>{indicator} {label}</h1>
+                            <h2>Confidence Level: {result['confidence']:.1%}</h2>
+                            <p style="font-size: 18px;">Current BTC Price: ${result['current_price']:,.2f}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        
+                        # Probabilities
+                        col_prob1, col_prob2, col_prob3 = st.columns(3)
+                        with col_prob1:
+                            st.metric(
+                                "No Movement",
+                                f"{result['probabilities']['no_movement']:.1%}",
+                                help="Probability of no significant price change"
+                            )
+                        with col_prob2:
+                            st.metric(
+                                "Large Upward",
+                                f"{result['probabilities']['large_up']:.1%}",
+                                help="Probability of large upward movement"
+                            )
+                        with col_prob3:
+                            st.metric(
+                                "Large Downward",
+                                f"{result['probabilities']['large_down']:.1%}",
+                                help="Probability of large downward movement"
+                            )
+                        
+                        # Price projection chart
+                        if result.get('next_periods'):
+                            st.markdown("### 📈 Projected Price Movement")
+                            
+                            periods = [0] + [p['period'] for p in result['next_periods']]
+                            prices = [result['current_price']] + [p['estimated_price'] for p in result['next_periods']]
+                            
+                            fig = go.Figure()
+                            fig.add_trace(go.Scatter(
+                                x=periods,
+                                y=prices,
+                                mode='lines+markers',
+                                name='Projected Price',
+                                line=dict(color='#667eea', width=3),
+                                marker=dict(size=8)
+                            ))
+                            
+                            fig.update_layout(
+                                title="Expected Price Trajectory (Next 6 Periods)",
+                                xaxis_title="Periods Ahead",
+                                yaxis_title="Price (USD)",
+                                hovermode='x unified',
+                                template='plotly_white',
+                                plot_bgcolor='rgba(0,0,0,0)',
+                                paper_bgcolor='rgba(0,0,0,0)',
+                                font=dict(color='#374151')
+                            )
+                            
+                            st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Show remaining predictions
+                        remaining = FREE_PREDICTIONS - st.session_state.prediction_count
+                        if remaining > 0:
+                            st.info(f"✅ You have **{remaining} free predictions** remaining in this demo session.")
+                        else:
+                            st.error(f"**Demo limit reached.** Contact **{CONTACT_EMAIL}** for unlimited access and model updates.")
+                        
+                        st.success("💡 **Tip:** Scroll down to see the prediction overlay on the live chart!")
+    
+    st.markdown("---")
+    
     # Live Bitcoin Price Chart (shown on startup)
-    st.markdown("### Live Bitcoin Market Data")
+    st.markdown("### 📊 Live Bitcoin Market Data")
     
     # Fetch and display current price (with multiple fallback sources)
     price_available = False
@@ -484,192 +666,9 @@ with col1:
             else:
                 st.error(f"⚠️ **Unable to load chart data**")
                 st.caption(f"Error: {status[:200]}")
-                st.info("💡 The AI prediction feature below still works!")
+                st.info("💡 The AI prediction feature above still works!")
     else:
-        st.info("💡 **Chart temporarily unavailable** - Proceed to AI Prediction below to get forecasts!")
-    
-    st.markdown("---")
-    
-    st.markdown("### Generate Prediction")
-    
-    # Check API status
-    health = check_api_health()
-    
-    # Debug info - can be removed later
-    with st.expander("🔍 API Connection Status (Debug Info)"):
-        st.write(f"**API URL:** {API_URL}")
-        st.write(f"**Health Check Response:**")
-        st.json(health)
-        
-        # Test additional endpoints
-        if st.button("Test Model Info Endpoint"):
-            model_info = get_model_info()
-            st.json(model_info)
-    
-    if health is None:
-        st.error("**API Service Unavailable** - No response from API server.")
-        st.info(f"Attempting to connect to: {API_URL}")
-        st.stop()
-    elif "error" in health:
-        st.error(f"**API Error:** {health['error']}")
-        st.info(f"API URL: {API_URL}")
-        st.stop()
-    elif not health.get('model_loaded', False):
-        st.warning("**Models Not Loaded** - API is running but models are not ready.")
-        st.info("Please wait for models to load or check API server logs.")
-        st.stop()
-    
-    # Model age warning
-    age_warning = get_model_age_warning()
-    if age_warning:
-        # Safely check the warning type without parsing integers
-        if "contact" in age_warning.lower():
-            # Critical warning - model is old, contact needed
-            st.markdown(f"""
-            <div class="warning-box">
-                <strong>Model Status:</strong> {age_warning}
-            </div>
-            """, unsafe_allow_html=True)
-        elif "Consider updating" in age_warning or "old" in age_warning.lower():
-            # Warning - model needs updating soon
-            st.warning(f"**Model Status:** {age_warning}")
-        else:
-            # Info - model is fresh
-            st.markdown(f"""
-            <div class="model-status">
-                <strong>Model Status:</strong> {age_warning}
-            </div>
-            """, unsafe_allow_html=True)
-    
-    # Prediction button
-    if st.session_state.prediction_count >= FREE_PREDICTIONS:
-        st.error(f"**Demo limit reached.** Contact {CONTACT_EMAIL} for unlimited access and fresh model updates.")
-    else:
-        col_btn1, col_btn2 = st.columns([1, 3])
-        with col_btn1:
-            predict_btn = st.button("Generate Prediction", use_container_width=True, type="primary")
-        
-        if predict_btn:
-            with st.spinner("Analyzing market data and generating prediction..."):
-                result = make_prediction()
-                
-                if 'error' in result:
-                    st.error(f"**Prediction failed:** {result['error']}")
-                    
-                    # Provide helpful troubleshooting information
-                    with st.expander("🔧 Troubleshooting Information"):
-                        st.markdown("""
-                        **Common API Issues:**
-                        
-                        1. **Server Error (500)**: The API encountered an internal error
-                           - This may be due to data processing issues
-                           - The model may need fresh data
-                           - Contact support for assistance
-                        
-                        2. **Timeout**: The API is taking too long to respond
-                           - The server may be cold-starting (first request after idle)
-                           - Try again in a few moments
-                        
-                        3. **Connection Error**: Cannot reach the API
-                           - Check your internet connection
-                           - Verify API is running
-                        
-                        **Contact Information:**
-                        - Email: kevinroymaglaqui29@gmail.com
-                        - API URL: https://btc-forecast-api.onrender.com
-                        
-                        For immediate assistance with model updates or API issues, please reach out.
-                        """)
-                else:
-                    # Increment counter
-                    st.session_state.prediction_count += 1
-                    st.session_state.predictions_history.append(result)
-                    # Store latest prediction for chart overlay
-                    st.session_state.latest_prediction = result
-                    
-                    # Display prediction
-                    st.markdown("---")
-                    st.markdown("### Prediction Results")
-                    
-                    # Prediction label
-                    label_indicators = {
-                        "No Significant Movement": "◯",
-                        "Large Upward Movement Expected": "▲",
-                        "Large Downward Movement Expected": "▼"
-                    }
-                    
-                    label = result['prediction_label']
-                    indicator = label_indicators.get(label, "●")
-                    
-                    st.markdown(f"""
-                    <div style="background: linear-gradient(135deg, #1f2937 0%, #374151 100%); 
-                                padding: 32px; border-radius: 16px; color: white; text-align: center;
-                                box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);">
-                        <h1>{indicator} {label}</h1>
-                        <h2>Confidence Level: {result['confidence']:.1%}</h2>
-                        <p style="font-size: 18px;">Current BTC Price: ${result['current_price']:,.2f}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    
-                    # Probabilities
-                    col_prob1, col_prob2, col_prob3 = st.columns(3)
-                    with col_prob1:
-                        st.metric(
-                            "No Movement",
-                            f"{result['probabilities']['no_movement']:.1%}",
-                            help="Probability of no significant price change"
-                        )
-                    with col_prob2:
-                        st.metric(
-                            "Large Upward",
-                            f"{result['probabilities']['large_up']:.1%}",
-                            help="Probability of large upward movement"
-                        )
-                    with col_prob3:
-                        st.metric(
-                            "Large Downward",
-                            f"{result['probabilities']['large_down']:.1%}",
-                            help="Probability of large downward movement"
-                        )
-                    
-                    # Price projection chart
-                    if result.get('next_periods'):
-                        st.markdown("### Projected Price Movement")
-                        
-                        periods = [0] + [p['period'] for p in result['next_periods']]
-                        prices = [result['current_price']] + [p['estimated_price'] for p in result['next_periods']]
-                        
-                        fig = go.Figure()
-                        fig.add_trace(go.Scatter(
-                            x=periods,
-                            y=prices,
-                            mode='lines+markers',
-                            name='Projected Price',
-                            line=dict(color='#667eea', width=3),
-                            marker=dict(size=8)
-                        ))
-                        
-                        fig.update_layout(
-                            title="Expected Price Trajectory (Next 6 Periods)",
-                            xaxis_title="Periods Ahead",
-                            yaxis_title="Price (USD)",
-                            hovermode='x unified',
-                            template='plotly_white',
-                            plot_bgcolor='rgba(0,0,0,0)',
-                            paper_bgcolor='rgba(0,0,0,0)',
-                            font=dict(color='#374151')
-                        )
-                        
-                        st.plotly_chart(fig, use_container_width=True)
-                    
-                    # Show remaining predictions
-                    remaining = FREE_PREDICTIONS - st.session_state.prediction_count
-                    if remaining > 0:
-                        st.info(f"You have **{remaining} free predictions** remaining in this demo session.")
-                    else:
-                        st.error(f"**Demo limit reached.** Contact **{CONTACT_EMAIL}** for unlimited access and model updates.")
+        st.info("💡 **Chart temporarily unavailable** - Use the AI Prediction feature above to get forecasts!")
 
 with col2:
     st.markdown("### Model Performance")
