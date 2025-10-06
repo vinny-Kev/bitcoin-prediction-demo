@@ -31,8 +31,21 @@ if 'predictions_history' not in st.session_state:
     st.session_state.predictions_history = []
 if 'latest_prediction' not in st.session_state:
     st.session_state.latest_prediction = None
+if 'api_key' not in st.session_state:
+    st.session_state.api_key = None
+if 'guest_usage_count' not in st.session_state:
+    st.session_state.guest_usage_count = 0
+if 'usage_info' not in st.session_state:
+    st.session_state.usage_info = None
 
 # API Functions - Define early so they can be used anywhere
+def get_api_headers():
+    """Get headers with API key if available"""
+    headers = {"Content-Type": "application/json"}
+    if st.session_state.api_key:
+        headers["X-API-Key"] = st.session_state.api_key
+    return headers
+
 def check_api_health():
     try:
         response = requests.get(f"{API_URL}/health", timeout=10)
@@ -45,6 +58,17 @@ def check_api_health():
         return {"error": "Cannot connect to API - check your internet connection"}
     except Exception as e:
         return {"error": f"API health check failed: {str(e)}"}
+
+def get_usage_info():
+    """Get current API usage information"""
+    try:
+        headers = get_api_headers()
+        response = requests.get(f"{API_URL}/usage", headers=headers, timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        return None
+    except:
+        return None
 
 @st.cache_data(ttl=3600)  # Cache for 1 hour
 def get_model_info():
@@ -61,6 +85,7 @@ def get_model_info():
 
 def make_prediction(symbol="BTCUSDT", interval="1m"):
     try:
+        headers = get_api_headers()
         response = requests.post(
             f"{API_URL}/predict",
             json={
@@ -68,16 +93,34 @@ def make_prediction(symbol="BTCUSDT", interval="1m"):
                 "interval": interval,
                 "use_live_data": True
             },
+            headers=headers,
             timeout=45
         )
+        
+        # Update usage info from response headers
+        if 'X-RateLimit-Remaining' in response.headers:
+            st.session_state.usage_info = {
+                'remaining': int(response.headers.get('X-RateLimit-Remaining', 0)),
+                'limit': int(response.headers.get('X-RateLimit-Limit', 0)),
+                'reset': response.headers.get('X-RateLimit-Reset', '')
+            }
+        
+        # Track guest usage
+        if not st.session_state.api_key:
+            st.session_state.guest_usage_count += 1
+        
         response.raise_for_status()
         return response.json()
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 429:
+            return {"error": "Rate limit exceeded", "rate_limit": True}
+        elif e.response.status_code == 403:
+            return {"error": "Invalid or expired API key", "auth_error": True}
+        return {"error": f"HTTP error: {e.response.status_code} - {e.response.text}"}
     except requests.exceptions.Timeout:
         return {"error": "Prediction timeout - API is taking too long to respond"}
     except requests.exceptions.ConnectionError:
         return {"error": "Cannot connect to API for prediction"}
-    except requests.exceptions.HTTPError as e:
-        return {"error": f"HTTP error: {e.response.status_code} - {e.response.text}"}
     except Exception as e:
         return {"error": f"Prediction failed: {str(e)}"}
 
@@ -378,6 +421,68 @@ with st.sidebar:
     
     st.markdown("---")
     
+    # API Key & Usage Section
+    st.markdown("### 🔑 API Access")
+    
+    # Show current status
+    if st.session_state.api_key:
+        st.success("✅ API Key Active")
+        # Get and display usage info
+        usage = get_usage_info()
+        if usage:
+            if usage.get('tier') == 'admin':
+                st.info("🌟 **Admin Access** - Unlimited usage")
+            else:
+                remaining = usage.get('calls_remaining', 0)
+                limit = usage.get('rate_limit', 0)
+                st.metric("Requests Remaining", f"{remaining}/{limit} per min")
+        
+        if st.button("🔄 Change API Key"):
+            st.session_state.api_key = None
+            st.rerun()
+    else:
+        # Guest mode
+        guest_used = st.session_state.guest_usage_count
+        guest_limit = 3
+        
+        st.warning(f"👤 **Guest Mode**: {guest_used}/{guest_limit} free predictions used")
+        
+        if guest_used >= guest_limit:
+            st.error("🚫 **Trial Expired**")
+            st.markdown("""
+            Hosting isn't free! Get your API key to continue:
+            
+            **Have an API key?** Enter it below for unlimited access!
+            """)
+        
+        # API Key input
+        with st.expander("🔐 Enter API Key" if guest_used < guest_limit else "🔐 Enter API Key (Required)", expanded=guest_used >= guest_limit):
+            api_key_input = st.text_input(
+                "API Key",
+                type="password",
+                placeholder="Enter your API key here",
+                help="Get your API key from the admin"
+            )
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("✅ Activate", use_container_width=True, disabled=not api_key_input):
+                    st.session_state.api_key = api_key_input.strip()
+                    # Verify the key
+                    usage = get_usage_info()
+                    if usage:
+                        st.success("API key activated!")
+                        st.rerun()
+                    else:
+                        st.error("Invalid API key")
+                        st.session_state.api_key = None
+            
+            with col2:
+                if st.button("📋 Copy Admin Key", use_container_width=True):
+                    st.info("Contact: kevinroymaglaqui29@gmail.com for admin key")
+    
+    st.markdown("---")
+    
     # About
     st.markdown("### About the Model")
     st.info("🚧 **Status:** In Active Development")
@@ -442,40 +547,78 @@ with col1:
                 </div>
                 """, unsafe_allow_html=True)
         
+        # Check if user can make predictions
+        can_predict = True
+        if not st.session_state.api_key and st.session_state.guest_usage_count >= 3:
+            can_predict = False
+            st.error("""
+            🚫 **Free trial exhausted** - You've used all 3 free predictions!
+            
+            **Hosting isn't free!** Please enter your API key in the sidebar to continue.
+            
+            👉 Check the sidebar for API key input.
+            """)
+        
         # Prediction button
-        predict_btn = st.button("🔮 Generate Prediction", use_container_width=True, type="primary")
+        predict_btn = st.button(
+            "🔮 Generate Prediction", 
+            use_container_width=True, 
+            type="primary",
+            disabled=not can_predict
+        )
         
         if predict_btn:
             with st.spinner("🤖 Analyzing market data and generating prediction..."):
                 result = make_prediction()
                 
                 if 'error' in result:
-                    st.error(f"**Prediction failed:** {result['error']}")
-                    
-                    # Provide helpful troubleshooting information
-                    with st.expander("🔧 Troubleshooting Information"):
-                        st.markdown("""
-                        **Common API Issues:**
+                    # Handle rate limit errors
+                    if result.get('rate_limit'):
+                        st.error("""
+                        ⏱️ **Rate Limit Exceeded**
                         
-                        1. **Server Error (500)**: The API encountered an internal error
-                           - This may be due to data processing issues
-                           - The model may need fresh data
-                           - Contact support for assistance
-                        
-                        2. **Timeout**: The API is taking too long to respond
-                           - The server may be cold-starting (first request after idle)
-                           - Try again in a few moments
-                        
-                        3. **Connection Error**: Cannot reach the API
-                           - Check your internet connection
-                           - Verify API is running
-                        
-                        **Contact Information:**
-                        - Email: kevinroymaglaqui29@gmail.com
-                        - API URL: https://btc-forecast-api.onrender.com
-                        
-                        For immediate assistance with model updates or API issues, please reach out.
+                        You've made too many requests. Please wait a moment or enter your API key for higher limits.
                         """)
+                        st.info("💡 Get an API key in the sidebar for unlimited access!")
+                    
+                    # Handle auth errors
+                    elif result.get('auth_error'):
+                        st.error("""
+                        🔑 **Authentication Error**
+                        
+                        Your API key is invalid or expired. Please check your key in the sidebar.
+                        """)
+                        st.session_state.api_key = None
+                        if st.button("🔄 Update API Key"):
+                            st.rerun()
+                    
+                    else:
+                        st.error(f"**Prediction failed:** {result['error']}")
+                        
+                        # Provide helpful troubleshooting information
+                        with st.expander("🔧 Troubleshooting Information"):
+                            st.markdown("""
+                            **Common API Issues:**
+                            
+                            1. **Server Error (500)**: The API encountered an internal error
+                               - This may be due to data processing issues
+                               - The model may need fresh data
+                               - Contact support for assistance
+                            
+                            2. **Timeout**: The API is taking too long to respond
+                               - The server may be cold-starting (first request after idle)
+                               - Try again in a few moments
+                            
+                            3. **Connection Error**: Cannot reach the API
+                               - Check your internet connection
+                               - Verify API is running
+                            
+                            **Contact Information:**
+                            - Email: kevinroymaglaqui29@gmail.com
+                            - API URL: https://btc-forecast-api.onrender.com
+                            
+                            For immediate assistance with model updates or API issues, please reach out.
+                            """)
                 else:
                     # Store prediction
                     st.session_state.predictions_history.append(result)
