@@ -351,6 +351,14 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# Development Disclaimer
+st.warning("""
+⚠️ **PROJECT IN DEVELOPMENT** - This AI system is still under active development. Some ensemble models may 
+occasionally malfunction or produce unexpected results. **Take all forecasts with a grain of salt** - use predictions 
+as one of many factors in your analysis, not as definitive trading signals. Always conduct your own research and 
+never invest more than you can afford to lose.
+""")
+
 # Sidebar
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/4/46/Bitcoin.svg/1024px-Bitcoin.svg.png?20140331024207", width=100)
@@ -372,6 +380,7 @@ with st.sidebar:
     
     # About
     st.markdown("### About the Model")
+    st.info("🚧 **Status:** In Active Development")
     st.markdown("""
     This AI system predicts **significant price movements** (>0.5%) 
     using an ensemble approach:
@@ -382,7 +391,10 @@ with st.sidebar:
     
     **Technical Features**: 20 optimized indicators from 70+ analyzed
     
-    **Data Source**: Real-time Binance API
+    **Data Source**: Real-time API
+    
+    ⚠️ **Note**: Some models may occasionally malfunction. 
+    Always verify predictions against multiple sources.
     """)
     
     st.markdown("---")
@@ -706,4 +718,20 @@ with col_f2:
     """)
 
 st.markdown("---")
-st.caption("**Disclaimer**: This is an AI prediction tool for educational and research purposes. Not financial advice. Trade responsibly and at your own risk.")
+st.error("""
+**⚠️ IMPORTANT DISCLAIMER** 
+
+This is an experimental AI prediction tool for educational and research purposes only. The system is **still in development** 
+and individual ensemble models may malfunction or produce inaccurate predictions. 
+
+**Take all forecasts with a grain of salt:**
+- Not financial advice or trading recommendations
+- Predictions should be ONE factor among many in your analysis
+- Past performance does not guarantee future results
+- Cryptocurrency markets are highly volatile and unpredictable
+- Always do your own research (DYOR)
+- Never invest more than you can afford to lose
+- Trade responsibly and at your own risk
+
+The creators assume no liability for any trading decisions made based on these predictions.
+""")
