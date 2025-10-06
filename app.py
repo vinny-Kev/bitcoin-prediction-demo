@@ -342,9 +342,10 @@ with col1:
     # Live Bitcoin Price Chart (shown on startup)
     st.markdown("### Live Bitcoin Market Data")
     
-    # Fetch and display current price
+    # Fetch and display current price (with timeout protection)
     try:
-        current_data = get_current_bitcoin_price()
+        with st.spinner("Fetching current Bitcoin price..."):
+            current_data = get_current_bitcoin_price()
         
         col_price1, col_price2, col_price3, col_price4 = st.columns(4)
         with col_price1:
@@ -361,6 +362,16 @@ with col1:
             st.metric("24h Volume", f"{current_data['volume']:,.0f} BTC")
     except Exception as e:
         st.warning(f"Unable to fetch current price: {str(e)}")
+        # Show placeholder metrics
+        col_price1, col_price2, col_price3, col_price4 = st.columns(4)
+        with col_price1:
+            st.metric("Current Price", "Loading...")
+        with col_price2:
+            st.metric("24h High", "Loading...")
+        with col_price3:
+            st.metric("24h Low", "Loading...")
+        with col_price4:
+            st.metric("24h Volume", "Loading...")
     
     # Interactive chart with timeframe selector
     chart_interval = st.selectbox(
@@ -371,14 +382,18 @@ with col1:
     )
     
     # Fetch and display chart
-    with st.spinner("Loading chart data..."):
-        chart_data = fetch_chart_data(interval=chart_interval, limit=200)
-        
-        if chart_data is not None and not chart_data.empty:
-            chart = create_price_chart(chart_data, show_indicators=True)
-            st.plotly_chart(chart, use_container_width=True)
-        else:
-            st.error("Failed to load chart data. Please refresh the page.")
+    try:
+        with st.spinner("Loading chart data..."):
+            chart_data = fetch_chart_data(interval=chart_interval, limit=200)
+            
+            if chart_data is not None and not chart_data.empty:
+                chart = create_price_chart(chart_data, show_indicators=True)
+                st.plotly_chart(chart, use_container_width=True)
+            else:
+                st.error("Failed to load chart data. Please refresh the page.")
+    except Exception as e:
+        st.error(f"Chart Error: {str(e)}")
+        st.info("The chart service is temporarily unavailable. You can still use the prediction feature below.")
     
     st.markdown("---")
     
