@@ -15,7 +15,7 @@ import json
 # Page config
 st.set_page_config(
     page_title="Bitcoin AI Predictor",
-    page_icon="🤖",
+    page_icon="₿",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -38,35 +38,68 @@ st.markdown("""
         margin-top: 1rem;
     }
     .metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #1f2937 0%, #374151 100%);
         padding: 20px;
-        border-radius: 10px;
+        border-radius: 12px;
         color: white;
         margin-bottom: 10px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
     }
     .warning-box {
-        background-color: #fff3cd;
-        border: 1px solid #ffecb5;
-        border-radius: 5px;
-        padding: 15px;
-        margin: 10px 0;
+        background-color: #fef3c7;
+        border: 1px solid #f59e0b;
+        border-radius: 8px;
+        padding: 16px;
+        margin: 12px 0;
+        border-left: 4px solid #f59e0b;
     }
     .demo-limit {
-        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-        padding: 15px;
-        border-radius: 10px;
+        background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+        padding: 18px;
+        border-radius: 12px;
         color: white;
         text-align: center;
         margin: 20px 0;
-        font-size: 18px;
-        font-weight: bold;
+        font-size: 16px;
+        font-weight: 600;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    .professional-header {
+        background: linear-gradient(135deg, #1f2937 0%, #374151 100%);
+        padding: 30px;
+        border-radius: 12px;
+        color: white;
+        text-align: center;
+        margin-bottom: 30px;
+        box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+    }
+    .model-status {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 16px;
+        margin: 16px 0;
+        border-left: 4px solid #3b82f6;
+    }
+    .contact-professional {
+        background: #1f2937;
+        color: white;
+        padding: 20px;
+        border-radius: 12px;
+        text-align: center;
+        margin: 20px 0;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # Header
-st.title("🤖 Bitcoin AI Price Predictor")
-st.markdown("### Predict Large Bitcoin Price Movements with ML")
+st.markdown("""
+<div class="professional-header">
+    <h1>₿ Bitcoin AI Price Predictor</h1>
+    <h3>Professional Machine Learning Forecasting System</h3>
+    <p>Predict significant Bitcoin price movements using advanced ensemble models</p>
+</div>
+""", unsafe_allow_html=True)
 
 # Sidebar
 with st.sidebar:
@@ -77,40 +110,42 @@ with st.sidebar:
     remaining = FREE_PREDICTIONS - st.session_state.prediction_count
     st.markdown(f"""
     <div class="demo-limit">
-        🎁 FREE DEMO<br>
+        FREE DEMO ACCESS<br>
         {remaining} / {FREE_PREDICTIONS} Predictions Remaining
     </div>
     """, unsafe_allow_html=True)
     
     if remaining == 0:
-        st.error("⚠️ **Demo Limit Reached**")
+        st.error("**Demo Limit Reached**")
         st.markdown(f"""
-        **Want unlimited predictions?**
+        <div class="contact-professional">
+        <strong>Upgrade for Full Access</strong><br><br>
         
-        Contact me for:
-        - ✅ Unlimited API access
-        - ✅ Custom integrations  
-        - ✅ Enterprise solutions
-        - ✅ Model customization
+        Professional services available:
+        • Unlimited API access<br>
+        • Custom integrations<br>  
+        • Enterprise solutions<br>
+        • Model customization<br><br>
         
-        📧 **{CONTACT_EMAIL}**
-        """)
+        <strong>Contact: {CONTACT_EMAIL}</strong>
+        </div>
+        """, unsafe_allow_html=True)
     
     st.markdown("---")
     
     # About
-    st.markdown("### 📊 About")
+    st.markdown("### About the Model")
     st.markdown("""
-    This AI model predicts **large price movements** (>0.5%) 
-    using an ensemble of:
+    This AI system predicts **significant price movements** (>0.5%) 
+    using an ensemble approach:
     
-    - 🌲 **CatBoost** (40%)
-    - 🌳 **Random Forest** (30%)
-    - 🧠 **LSTM Neural Network** (30%)
+    • **CatBoost Algorithm** (40% weight)
+    • **Random Forest** (30% weight)  
+    • **LSTM Neural Network** (30% weight)
     
-    **Features**: 20 technical indicators selected from 70+ features
+    **Technical Features**: 20 optimized indicators from 70+ analyzed
     
-    **Data**: Live Binance API
+    **Data Source**: Real-time Binance API
     """)
     
     st.markdown("---")
@@ -149,7 +184,7 @@ def make_prediction(symbol="BTCUSDT", interval="1m"):
     except Exception as e:
         return {"error": str(e)}
 
-# Calculate model age
+# Calculate model age and provide professional validation messaging
 def get_model_age_warning():
     try:
         info = get_model_info()
@@ -157,51 +192,63 @@ def get_model_age_warning():
             training_date = datetime.fromisoformat(info['metadata']['training_date'].replace('Z', '+00:00'))
             age_days = (datetime.now() - training_date.replace(tzinfo=None)).days
             
-            if age_days > 7:
-                return f"⚠️ **Model is {age_days} days old.** Consider retraining for best accuracy."
+            if age_days > 14:
+                return f"**Model is {age_days} days old.** For optimal performance with current market conditions, contact {CONTACT_EMAIL} to update the model with fresh market data. The API is available at {API_URL}"
+            elif age_days > 7:
+                return f"**Model is {age_days} days old.** Consider updating for enhanced accuracy with recent market patterns."
             elif age_days > 3:
-                return f"ℹ️ Model is {age_days} days old."
+                return f"Model is {age_days} days old - performing well with current data."
             else:
-                return f"✅ Model is fresh ({age_days} days old)."
-        return None
+                return f"Model is fresh ({age_days} days old) - optimal performance expected."
+        return "Model age information unavailable."
     except:
-        return None
+        return "Unable to verify model freshness. Contact support for current model status."
 
 # Main content
 col1, col2 = st.columns([2, 1])
 
 with col1:
-    st.markdown("### 🔮 Get Prediction")
+    st.markdown("### Generate Prediction")
     
     # Check API status
     health = check_api_health()
     if health is None or not health.get('model_loaded', False):
-        st.error("❌ **API is offline or models not loaded.** Please start the API server.")
+        st.error("**API Service Unavailable** - Models not loaded. Please verify the API server is running.")
         st.code("uvicorn prediction_api:app --reload", language="bash")
         st.stop()
     
     # Model age warning
     age_warning = get_model_age_warning()
     if age_warning:
-        if "⚠️" in age_warning:
-            st.warning(age_warning)
+        if "contact" in age_warning.lower() or "days old" in age_warning and int(age_warning.split()[2]) > 14:
+            st.markdown(f"""
+            <div class="warning-box">
+                <strong>Model Status:</strong> {age_warning}
+            </div>
+            """, unsafe_allow_html=True)
+        elif "Consider updating" in age_warning:
+            st.warning(f"**Model Status:** {age_warning}")
         else:
-            st.info(age_warning)
+            st.markdown(f"""
+            <div class="model-status">
+                <strong>Model Status:</strong> {age_warning}
+            </div>
+            """, unsafe_allow_html=True)
     
     # Prediction button
     if st.session_state.prediction_count >= FREE_PREDICTIONS:
-        st.error(f"🚫 **Demo limit reached!** Contact {CONTACT_EMAIL} for unlimited access.")
+        st.error(f"**Demo limit reached.** Contact {CONTACT_EMAIL} for unlimited access and fresh model updates.")
     else:
         col_btn1, col_btn2 = st.columns([1, 3])
         with col_btn1:
-            predict_btn = st.button("🚀 Predict Now", use_container_width=True, type="primary")
+            predict_btn = st.button("Generate Prediction", use_container_width=True, type="primary")
         
         if predict_btn:
-            with st.spinner("🔮 Analyzing market data..."):
+            with st.spinner("Analyzing market data and generating prediction..."):
                 result = make_prediction()
                 
                 if 'error' in result:
-                    st.error(f"❌ Prediction failed: {result['error']}")
+                    st.error(f"**Prediction failed:** {result['error']}")
                 else:
                     # Increment counter
                     st.session_state.prediction_count += 1
@@ -209,24 +256,25 @@ with col1:
                     
                     # Display prediction
                     st.markdown("---")
-                    st.markdown("### 📈 Prediction Result")
+                    st.markdown("### Prediction Results")
                     
                     # Prediction label
-                    label_colors = {
-                        "No Significant Movement": "🟡",
-                        "Large Upward Movement Expected": "🟢",
-                        "Large Downward Movement Expected": "🔴"
+                    label_indicators = {
+                        "No Significant Movement": "◯",
+                        "Large Upward Movement Expected": "▲",
+                        "Large Downward Movement Expected": "▼"
                     }
                     
                     label = result['prediction_label']
-                    emoji = label_colors.get(label, "⚪")
+                    indicator = label_indicators.get(label, "●")
                     
                     st.markdown(f"""
-                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                                padding: 30px; border-radius: 15px; color: white; text-align: center;">
-                        <h1>{emoji} {label}</h1>
-                        <h2>Confidence: {result['confidence']:.1%}</h2>
-                        <p>Current Price: ${result['current_price']:,.2f}</p>
+                    <div style="background: linear-gradient(135deg, #1f2937 0%, #374151 100%); 
+                                padding: 32px; border-radius: 16px; color: white; text-align: center;
+                                box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);">
+                        <h1>{indicator} {label}</h1>
+                        <h2>Confidence Level: {result['confidence']:.1%}</h2>
+                        <p style="font-size: 18px;">Current BTC Price: ${result['current_price']:,.2f}</p>
                     </div>
                     """, unsafe_allow_html=True)
                     
@@ -242,20 +290,20 @@ with col1:
                         )
                     with col_prob2:
                         st.metric(
-                            "Large Up ↗️",
+                            "Large Upward",
                             f"{result['probabilities']['large_up']:.1%}",
                             help="Probability of large upward movement"
                         )
                     with col_prob3:
                         st.metric(
-                            "Large Down ↘️",
+                            "Large Downward",
                             f"{result['probabilities']['large_down']:.1%}",
                             help="Probability of large downward movement"
                         )
                     
                     # Price projection chart
                     if result.get('next_periods'):
-                        st.markdown("### 📊 Projected Price Movement")
+                        st.markdown("### Projected Price Movement")
                         
                         periods = [0] + [p['period'] for p in result['next_periods']]
                         prices = [result['current_price']] + [p['estimated_price'] for p in result['next_periods']]
@@ -275,7 +323,10 @@ with col1:
                             xaxis_title="Periods Ahead",
                             yaxis_title="Price (USD)",
                             hovermode='x unified',
-                            template='plotly_dark'
+                            template='plotly_white',
+                            plot_bgcolor='rgba(0,0,0,0)',
+                            paper_bgcolor='rgba(0,0,0,0)',
+                            font=dict(color='#374151')
                         )
                         
                         st.plotly_chart(fig, use_container_width=True)
@@ -283,12 +334,12 @@ with col1:
                     # Show remaining predictions
                     remaining = FREE_PREDICTIONS - st.session_state.prediction_count
                     if remaining > 0:
-                        st.info(f"ℹ️ You have **{remaining} free predictions** remaining.")
+                        st.info(f"You have **{remaining} free predictions** remaining in this demo session.")
                     else:
-                        st.error(f"🚫 Demo limit reached! Contact **{CONTACT_EMAIL}** for unlimited access.")
+                        st.error(f"**Demo limit reached.** Contact **{CONTACT_EMAIL}** for unlimited access and model updates.")
 
 with col2:
-    st.markdown("### 📊 Model Stats")
+    st.markdown("### Model Performance")
     
     # Get model info
     info = get_model_info()
@@ -311,22 +362,22 @@ with col2:
         # Training date
         if 'training_date' in metadata:
             st.markdown("---")
-            st.caption(f"📅 Trained: {metadata['training_date']}")
+            st.caption(f"Last Trained: {metadata['training_date']}")
     
     # Prediction history
     if st.session_state.predictions_history:
         st.markdown("---")
-        st.markdown("### 📜 History")
+        st.markdown("### Recent History")
         
         for i, pred in enumerate(reversed(st.session_state.predictions_history[-5:])):
-            label_emoji = {
-                0: "🟡",
-                1: "🟢",
+            label_indicators = {
+                0: "⚫",
+                1: "�", 
                 2: "🔴"
             }
-            emoji = label_emoji.get(pred['prediction'], "⚪")
+            indicator = label_indicators.get(pred['prediction'], "⚪")
             
-            st.caption(f"{emoji} {pred['timestamp'][:19]}")
+            st.caption(f"{indicator} {pred['timestamp'][:19]}")
             st.caption(f"   Confidence: {pred['confidence']:.1%}")
 
 # Footer
@@ -334,34 +385,35 @@ st.markdown("---")
 col_f1, col_f2, col_f3 = st.columns(3)
 
 with col_f1:
-    st.markdown("### 🌟 Features")
+    st.markdown("### Key Features")
     st.markdown("""
-    - Real-time Binance data
-    - 20 technical indicators
-    - Ensemble ML models
-    - High-confidence predictions
+    - Real-time Binance data integration
+    - 20 optimized technical indicators
+    - Ensemble machine learning models
+    - High-confidence prediction system
     """)
 
 with col_f2:
-    st.markdown("### 📈 Use Cases")
+    st.markdown("### Applications")
     st.markdown("""
-    - Swing trading signals
-    - Risk management
+    - Swing trading signal generation
+    - Risk management planning
     - Market sentiment analysis
-    - Entry/exit timing
+    - Strategic entry/exit timing
     """)
 
 with col_f3:
-    st.markdown("### 💼 Contact")
+    st.markdown("### Professional Services")
     st.markdown(f"""
-    **Want more?**
+    **Upgrade Options Available**
     
-    📧 {CONTACT_EMAIL}
+    Contact: {CONTACT_EMAIL}
     
     - Unlimited API access
-    - Custom integrations
-    - Enterprise solutions
+    - Custom model integrations
+    - Enterprise-grade solutions
+    - Real-time model updates
     """)
 
 st.markdown("---")
-st.caption("⚠️ **Disclaimer**: This is an AI prediction tool for educational purposes. Not financial advice. Trade at your own risk.")
+st.caption("**Disclaimer**: This is an AI prediction tool for educational and research purposes. Not financial advice. Trade responsibly and at your own risk.")
