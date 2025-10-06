@@ -1,5 +1,7 @@
 """
-🤖 Bitcoin AI Price Predictor - Demo
+Kevin Roy V. Maglaqui
+2025 - 10 - 04
+Bitcoin AI Price Predictor - Demo
 Predicts large Bitcoin price movements using ensemble ML models
 """
 
@@ -68,7 +70,7 @@ st.markdown("### Predict Large Bitcoin Price Movements with ML")
 
 # Sidebar
 with st.sidebar:
-    st.image("https://cryptologos.cc/logos/bitcoin-btc-logo.png", width=100)
+    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/4/46/Bitcoin.svg/1024px-Bitcoin.svg.png?20140331024207", width=100)
     st.markdown("---")
     
     # Demo counter
