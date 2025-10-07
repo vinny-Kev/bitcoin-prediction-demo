@@ -12,6 +12,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import json
+import time
 from data_fetcher import get_bitcoin_data, get_current_bitcoin_price
 
 # Page config
@@ -37,6 +38,13 @@ if 'guest_usage_count' not in st.session_state:
     st.session_state.guest_usage_count = 0
 if 'usage_info' not in st.session_state:
     st.session_state.usage_info = None
+if 'api_wake_log' not in st.session_state:
+    st.session_state.api_wake_log = []
+if 'last_wake_attempt' not in st.session_state:
+    st.session_state.last_wake_attempt = None
+if 'wake_cooldown' not in st.session_state:
+    st.session_state.wake_cooldown = 60  # seconds between manual wake attempts
+
 
 # API Functions - Define early so they can be used anywhere
 def get_api_headers():
@@ -58,6 +66,41 @@ def check_api_health():
         return {"error": "Cannot connect to API - check your internet connection"}
     except Exception as e:
         return {"error": f"API health check failed: {str(e)}"}
+
+def wake_api(max_retries: int = 3, base_delay: float = 2.0):
+    """Attempt to wake the Render free-tier API by pinging /health multiple times.
+
+    Returns a dict with status and log entries.
+    """
+    now = time.time()
+    # Throttle wake attempts
+    if st.session_state.last_wake_attempt and (now - st.session_state.last_wake_attempt) < st.session_state.wake_cooldown:
+        remaining = int(st.session_state.wake_cooldown - (now - st.session_state.last_wake_attempt))
+        return {"status": "cooldown", "message": f"Please wait {remaining}s before trying again."}
+
+    st.session_state.last_wake_attempt = now
+    log = []
+    for attempt in range(1, max_retries + 1):
+        try:
+            start = time.time()
+            timeout = 5 + attempt * 3  # progressively longer
+            r = requests.get(f"{API_URL}/health", timeout=timeout)
+            elapsed = time.time() - start
+            if r.status_code == 200:
+                data = r.json()
+                log.append(f"Attempt {attempt}: ✅ 200 OK in {elapsed:.2f}s (model_loaded={data.get('model_loaded')})")
+                st.session_state.api_wake_log = log
+                return {"status": "awake", "log": log, "model_loaded": data.get('model_loaded')}
+            else:
+                log.append(f"Attempt {attempt}: ⚠️ {r.status_code} {r.text[:60]}")
+        except requests.exceptions.Timeout:
+            log.append(f"Attempt {attempt}: ⏱️ Timeout after {timeout}s")
+        except Exception as e:
+            log.append(f"Attempt {attempt}: ❌ Error: {str(e)[:70]}")
+        # Backoff before next attempt (non-blocking perspective; small sleep acceptable)
+        time.sleep(base_delay * attempt)
+    st.session_state.api_wake_log = log
+    return {"status": "failed", "log": log}
 
 def get_usage_info():
     """Get current API usage information"""
@@ -433,6 +476,29 @@ with st.sidebar:
         st.caption(api_status['error'])
     else:
         st.warning("**API Status Unknown**")
+
+    # Wake API helper (for cold starts on free tier)
+    with st.expander("🚀 Wake / Restart API Helper", expanded=False):
+        st.caption("Free-tier hosting can spin down when idle. Use this to 'warm' the API.")
+        col_w1, col_w2 = st.columns([1,1])
+        with col_w1:
+            wake_clicked = st.button("🔄 Wake API", use_container_width=True)
+        with col_w2:
+            if st.button("🧹 Clear Log", use_container_width=True):
+                st.session_state.api_wake_log = []
+        if wake_clicked:
+            with st.spinner("Pinging service to wake it up..."):
+                wake_result = wake_api()
+                status = wake_result.get('status')
+                if status == 'awake':
+                    st.success("API is awake and responding ✅")
+                elif status == 'cooldown':
+                    st.info(wake_result.get('message'))
+                else:
+                    st.warning("Wake attempts finished without success. The service may still be starting.")
+        if st.session_state.api_wake_log:
+            st.code("\n".join(st.session_state.api_wake_log), language="text")
+        st.caption("Tip: First response after a cold start can take 20-60s. Multiple progressive pings help.")
     
     st.markdown("---")
     
@@ -447,8 +513,13 @@ with st.sidebar:
         if usage:
             user_type = usage.get('user_type', 'authenticated')
             
-            if user_type == 'authenticated':
-                # Authenticated user with rate limits
+            if user_type == 'admin':
+                # Admin user - unlimited access
+                name = usage.get('name', 'Admin')
+                st.success(f"🌟 **{name}**")
+                st.info("**Unlimited Access** - No rate limits")
+            elif user_type == 'authenticated':
+                # Regular authenticated user with rate limits
                 name = usage.get('name', 'User')
                 rate_limit = usage.get('rate_limit', 'N/A')
                 calls_remaining = usage.get('calls_remaining', 0)
@@ -457,7 +528,7 @@ with st.sidebar:
                 st.caption(f"Limit: {rate_limit}")
                 st.metric("Calls Available", f"{calls_remaining} calls/min")
             else:
-                # Admin or other special access
+                # Other special access
                 st.info("🌟 **Premium Access**")
         
         if st.button("🔄 Change API Key"):
@@ -473,9 +544,17 @@ with st.sidebar:
         if guest_used >= guest_limit:
             st.error("🚫 **Trial Expired**")
             st.markdown("""
-            Hosting isn't free! Get your API key to continue:
+            **Hosting isn't free!** You've used all 3 free predictions.
             
-            **Have an API key?** Enter it below for unlimited access!
+            **Don't have an API key?**  
+            📧 Email **kevinroymaglaqui29@gmail.com** with:
+            - Your name
+            - Your email
+            - Use case (optional)
+            
+            I'll send you an API key for continued access!
+            
+            **Already have a key?** Enter it below 👇
             """)
         
         # API Key input
@@ -483,8 +562,8 @@ with st.sidebar:
             api_key_input = st.text_input(
                 "API Key",
                 type="password",
-                placeholder="Enter your API key here",
-                help="Get your API key from the admin"
+                placeholder="btc_xxxxxxxxxxxxx",
+                help="Request your API key by emailing kevinroymaglaqui29@gmail.com"
             )
             
             col1, col2 = st.columns(2)
@@ -501,8 +580,14 @@ with st.sidebar:
                         st.session_state.api_key = None
             
             with col2:
-                if st.button("📋 Copy Admin Key", use_container_width=True):
-                    st.info("Contact: kevinroymaglaqui29@gmail.com for admin key")
+                if st.button("� Request Key", use_container_width=True):
+                    st.info("""
+                    **Email:** kevinroymaglaqui29@gmail.com
+                    
+                    **Subject:** API Key Request - Bitcoin AI
+                    
+                    **Include:** Your name and email
+                    """)
     
     st.markdown("---")
     
@@ -600,9 +685,15 @@ with col1:
                         st.error(f"""
                         🚫 **{result['error']}**
                         
-                        You've used all your free predictions. Enter an API key in the sidebar to continue!
+                        You've used all your free predictions!
                         """)
-                        st.info("💡 Contact Kevin Maglaqui at kevinroymaglaqui27@gmail.com for an API key")
+                        st.info("""
+                        💡 **Need an API key?**
+                        
+                        📧 Email **kevinroymaglaqui29@gmail.com** to request your API key.
+                        
+                        Include your name and email, and I'll send you a key for continued access!
+                        """)
                     
                     # Handle rate limit errors
                     elif result.get('rate_limit'):
