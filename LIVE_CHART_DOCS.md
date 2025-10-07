@@ -58,7 +58,6 @@ The main page now shows:
 
 **Binance Public API**
 - Endpoint: `https://api.binance.com/api/v3`
-- No API key required for public data
 - Rate limits respected with automatic delays
 - Reliable and fast
 
@@ -173,11 +172,6 @@ The chart provides context for predictions:
 - [x] Error handling works
 - [x] Mobile responsive
 - [x] Performance acceptable
-
-## Deployment
-
-✅ Committed and pushed to GitHub
-⏳ Streamlit Cloud will auto-deploy in 2-3 minutes
 
 ## Contact
 
