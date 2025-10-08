@@ -8,10 +8,8 @@ Version: 1.1.0 - Added live charts and improved error handling
 
 import streamlit as st
 import requests
-import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
-import json
 import time
 from data_fetcher import get_bitcoin_data, get_current_bitcoin_price
 
@@ -535,10 +533,9 @@ st.markdown("""
 
 # Development Disclaimer
 st.warning("""
-⚠️ **PROJECT IN DEVELOPMENT** - This AI system is still under active development. Some ensemble models may 
-occasionally malfunction or produce unexpected results. **Take all forecasts with a grain of salt** - use predictions 
-as one of many factors in your analysis, not as definitive trading signals. Always conduct your own research and 
-never invest more than you can afford to lose.
+⚠️ **PROJECT IN DEVELOPMENT** - This AI system uses advanced meta-learning techniques and is continuously improving. 
+**Take all forecasts with a grain of salt** - use predictions as one of many factors in your analysis, not as definitive 
+trading signals. Always conduct your own research and never invest more than you can afford to lose.
 """)
 
 # Sidebar
@@ -676,18 +673,21 @@ with st.sidebar:
     st.markdown("### About the Model")
     st.info("🚧 **Status:** In Active Development")
     st.markdown("""
-    This AI system predicts **significant price movements** (>0.5%) 
-    using an ensemble approach:
+    This AI system predicts **significant price movements** (>0.2%) 
+    using a **meta-learning stacked ensemble**:
     
-    • **CatBoost Algorithm** (40% weight)
-    • **Random Forest** (30% weight)  
-    • **Logistic Regression** (30% weight)
+    **Base Models:**
+    • **CatBoost** (50% weight)
+    • **Random Forest** (25% weight)  
+    • **Logistic Regression** (25% weight)
     
-    **Technical Features**: 70 optimized indicators analyzed
+    **Meta-Learner**: Combines base predictions for optimal accuracy
     
-    **Data Source**: Real-time API
+    **Technical Features**: 20 optimized indicators analyzed
     
-    ⚠️ **Note**: Some models may occasionally malfunction. 
+    **Data Source**: Real-time Binance API
+    
+    ⚠️ **Note**: Models are continuously updated. 
     Always verify predictions against multiple sources.
     """)
     
@@ -761,9 +761,6 @@ with main_col:
                     # Store prediction
                     st.session_state.predictions_history.append(result)
                     st.session_state.latest_prediction = result
-                    
-                    # Debug: Check if prediction has next_periods
-                    has_next_periods = 'next_periods' in result
                     
                     st.markdown("---")
                     
@@ -851,17 +848,6 @@ with main_col:
                         """, unsafe_allow_html=True)
                     
                     st.success("✅ Prediction generated! Scroll down to see it overlaid on the live chart.")
-                    
-                    # Debug info
-                    with st.expander("🔍 Debug: Prediction Data", expanded=False):
-                        st.write(f"Has 'next_periods': {has_next_periods}")
-                        if has_next_periods:
-                            st.write(f"Number of periods: {len(result.get('next_periods', []))}")
-                            st.json(result.get('next_periods', []))
-                        else:
-                            st.warning("❌ No 'next_periods' in API response - overlay won't work!")
-                        st.write("**Full response keys:**")
-                        st.write(list(result.keys()))
     
     # CHART SECTION - BELOW PREDICTION
     st.markdown("---")
@@ -963,11 +949,32 @@ with sidebar_col:
         metadata = info.get('metadata', {})
         performance = info.get('performance', metadata.get('performance', {}))
         
-        # Ensemble Weights
-        st.markdown("**Ensemble Weights:**")
-        st.caption("• CatBoost: 40%")
-        st.caption("• Random Forest: 30%")
-        st.caption("• Logistic Regression: 30%")
+        # Model Architecture
+        has_meta_learner = info.get('has_meta_learner', metadata.get('has_meta_learner', False))
+        use_stacking = info.get('use_stacking', metadata.get('use_stacking', False))
+        
+        if has_meta_learner or use_stacking:
+            st.markdown("**🧠 Stacked Ensemble + Meta-Learner**")
+            st.caption("_Base models → Meta-learner → Final prediction_")
+            st.markdown("---")
+        
+        # Ensemble Weights - check both top level and metadata
+        ensemble_weights = info.get('ensemble_weights', metadata.get('ensemble_weights', {}))
+        st.markdown("**Base Model Weights:**")
+        
+        if ensemble_weights:
+            catboost_weight = ensemble_weights.get('catboost', 0.5) * 100
+            rf_weight = ensemble_weights.get('rf', 0.25) * 100
+            logistic_weight = ensemble_weights.get('logistic', 0.25) * 100
+            
+            st.caption(f"• CatBoost: {catboost_weight:.0f}%")
+            st.caption(f"• Random Forest: {rf_weight:.0f}%")
+            st.caption(f"• Logistic Regression: {logistic_weight:.0f}%")
+        else:
+            # Fallback to defaults
+            st.caption("• CatBoost: 50%")
+            st.caption("• Random Forest: 25%")
+            st.caption("• Logistic Regression: 25%")
         
         st.markdown("---")
         
@@ -1001,7 +1008,7 @@ with sidebar_col:
             st.caption(f"ROC AUC: {test_roc:.3f}")
         
         st.markdown("---")
-        st.caption(f"🔢 Features: {info.get('feature_count', info.get('n_features', 70))}")
+        st.caption(f"🔢 Features: {info.get('feature_count', info.get('n_features', 20))}")
         
         # Training date
         training_date = info.get('training_date', metadata.get('training_date', None))
@@ -1015,14 +1022,16 @@ with sidebar_col:
     # Technical Indicators List
     st.markdown("**Technical Indicators:**")
     indicators = [
-        "SMA (20, 50)",
+        "SMA (7, 14, 21, 50)",
         "EMA (12, 26)",
-        "RSI",
+        "RSI (14)",
         "MACD",
         "Bollinger Bands",
-        "Volume Analysis",
-        "Price Momentum",
-        "+ 63 more..."
+        "ATR",
+        "ADX",
+        "Volume Ratio",
+        "ROC",
+        "+ Price derivatives"
     ]
     for indicator in indicators:
         st.caption(f"• {indicator}")
