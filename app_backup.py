@@ -290,40 +290,57 @@ def create_price_chart(df, show_indicators=True, data_source="Binance", predicti
         ))
     
     # Add prediction overlay if provided
-    if prediction_result:
-        # Determine color and name based on prediction
+    if prediction_result and 'next_periods' in prediction_result:
+        current_price = prediction_result['current_price']
+        last_time = df.index[-1]
+        
+        # Calculate average time interval from the chart data
+        if len(df) >= 2:
+            time_intervals = [(df.index[i] - df.index[i-1]) for i in range(1, min(6, len(df)))]
+            avg_interval = sum(time_intervals, timedelta(0)) / len(time_intervals)
+        else:
+            avg_interval = timedelta(minutes=5)
+        
+        # Get the last closing price from the chart
+        last_chart_price = float(df['close'].iloc[-1])
+        
+        # Create prediction line starting from the last chart point
+        prediction_times = [last_time]
+        prediction_prices = [last_chart_price]  # Start from last chart price
+        
+        # Add predicted future points
+        for period in prediction_result['next_periods']:
+            future_time = last_time + (avg_interval * period['period'])
+            prediction_times.append(future_time)
+            prediction_prices.append(period['estimated_price'])
+        
+        # Determine color based on prediction (check for v1.1 suggestion first)
         suggestion = prediction_result.get('suggestion', {})
         action = suggestion.get('action', None)
         
         if action == 'BUY':
             pred_color = '#10b981'  # Green
             pred_name = '▲ AI Prediction: BUY Signal'
-            pred_symbol = 'triangle-up'
         elif action == 'SELL':
             pred_color = '#ef4444'  # Red
             pred_name = '▼ AI Prediction: SELL Signal'
-            pred_symbol = 'triangle-down'
         elif action == 'HOLD':
             pred_color = '#f59e0b'  # Orange
             pred_name = '◯ AI Prediction: HOLD'
-            pred_symbol = 'diamond'
         else:
             # Fallback to legacy prediction_label
             pred_label = prediction_result.get('prediction_label', '')
             if 'Upward' in pred_label:
-                pred_color = '#10b981'
+                pred_color = '#10b981'  # Green
                 pred_name = '▲ AI Prediction: Upward'
-                pred_symbol = 'triangle-up'
             elif 'Downward' in pred_label:
-                pred_color = '#ef4444'
+                pred_color = '#ef4444'  # Red
                 pred_name = '▼ AI Prediction: Downward'
-                pred_symbol = 'triangle-down'
             else:
-                pred_color = '#6b7280'
+                pred_color = '#6b7280'  # Gray
                 pred_name = '◯ AI Prediction: Neutral'
-                pred_symbol = 'circle'
         
-        # Build hover text
+        # Add conviction and trend info to hover if available
         hover_extra = f"<br>Confidence: {prediction_result.get('confidence', 0):.1%}"
         if suggestion:
             hover_extra += f"<br>Action: {action} ({suggestion.get('conviction', 'N/A')})"
@@ -332,110 +349,44 @@ def create_price_chart(df, show_indicators=True, data_source="Binance", predicti
         if trend:
             hover_extra += f"<br>Trend: {trend.get('short_term', 'N/A')} / {trend.get('long_term', 'N/A')}"
         
-        # Check if we have next_periods for full overlay
-        if 'next_periods' in prediction_result:
-            # FULL OVERLAY WITH PROJECTION LINE
-            current_price = prediction_result['current_price']
-            last_time = df.index[-1]
-            
-            # Calculate average time interval
-            if len(df) >= 2:
-                time_intervals = [(df.index[i] - df.index[i-1]) for i in range(1, min(6, len(df)))]
-                avg_interval = sum(time_intervals, timedelta(0)) / len(time_intervals)
-            else:
-                avg_interval = timedelta(minutes=5)
-            
-            # Get the last closing price from the chart
-            last_chart_price = float(df['close'].iloc[-1])
-            
-            # Create prediction line starting from the last chart point
-            prediction_times = [last_time]
-            prediction_prices = [last_chart_price]
-            
-            # Add predicted future points
-            for period in prediction_result['next_periods']:
-                future_time = last_time + (avg_interval * period['period'])
-                prediction_times.append(future_time)
-                prediction_prices.append(period['estimated_price'])
-            
-            # Add prediction line
-            fig.add_trace(go.Scatter(
-                x=prediction_times,
-                y=prediction_prices,
-                mode='lines+markers',
-                name=pred_name,
-                line=dict(color=pred_color, width=3, dash='dash'),
-                marker=dict(size=10, symbol='star', color=pred_color),
-                opacity=0.9,
-                hovertemplate=f'<b>Predicted Price</b><br>$%{{y:,.2f}}<br>%{{x}}{hover_extra}<extra></extra>'
-            ))
-            
-            # Add confidence band
-            confidence = prediction_result.get('confidence', 0)
-            upper_band = [p * (1 + (1 - confidence) * 0.02) for p in prediction_prices]
-            lower_band = [p * (1 - (1 - confidence) * 0.02) for p in prediction_prices]
-            
-            fig.add_trace(go.Scatter(
-                x=prediction_times,
-                y=upper_band,
-                mode='lines',
-                name='Confidence Upper',
-                line=dict(width=0),
-                showlegend=False,
-                hoverinfo='skip'
-            ))
-            
-            fig.add_trace(go.Scatter(
-                x=prediction_times,
-                y=lower_band,
-                mode='lines',
-                name='Confidence Lower',
-                line=dict(width=0),
-                fill='tonexty',
-                fillcolor=f'rgba({"16, 185, 129" if pred_color == "#10b981" else "239, 68, 68" if pred_color == "#ef4444" else "245, 158, 11" if pred_color == "#f59e0b" else "107, 114, 128"}, 0.1)',
-                showlegend=False,
-                hoverinfo='skip'
-            ))
-        else:
-            # SIMPLE OVERLAY - Just show marker at current price point
-            last_time = df.index[-1]
-            last_price = float(df['close'].iloc[-1])
-            
-            # Add a single marker showing the prediction
-            fig.add_trace(go.Scatter(
-                x=[last_time],
-                y=[last_price],
-                mode='markers',
-                name=pred_name,
-                marker=dict(
-                    size=20,
-                    symbol=pred_symbol,
-                    color=pred_color,
-                    line=dict(width=2, color='white')
-                ),
-                opacity=0.9,
-                hovertemplate=f'<b>AI Prediction</b><br>${{y:,.2f}}<br>{{x}}{hover_extra}<extra></extra>'
-            ))
-            
-            # Add annotation
-            fig.add_annotation(
-                x=last_time,
-                y=last_price,
-                text=f"{pred_name.split(':')[1].strip()}",
-                showarrow=True,
-                arrowhead=2,
-                arrowsize=1,
-                arrowwidth=2,
-                arrowcolor=pred_color,
-                ax=50,
-                ay=-40,
-                bgcolor=pred_color,
-                font=dict(color='white', size=12),
-                bordercolor='white',
-                borderwidth=2,
-                borderpad=4,
-                opacity=0.9
-            )
+        # Add prediction line
+        fig.add_trace(go.Scatter(
+            x=prediction_times,
+            y=prediction_prices,
+            mode='lines+markers',
+            name=pred_name,
+            line=dict(color=pred_color, width=3, dash='dash'),
+            marker=dict(size=10, symbol='star', color=pred_color),
+            opacity=0.9,
+            hovertemplate=f'<b>Predicted Price</b><br>$%{{y:,.2f}}<br>%{{x}}{hover_extra}<extra></extra>'
+        ))
+        
+        # Add confidence band
+        confidence = prediction_result.get('confidence', 0)
+        upper_band = [p * (1 + (1 - confidence) * 0.02) for p in prediction_prices]
+        lower_band = [p * (1 - (1 - confidence) * 0.02) for p in prediction_prices]
+        
+        fig.add_trace(go.Scatter(
+            x=prediction_times,
+            y=upper_band,
+            mode='lines',
+            name='Confidence Upper',
+            line=dict(width=0),
+            showlegend=False,
+            hoverinfo='skip'
+        ))
+        
+        fig.add_trace(go.Scatter(
+            x=prediction_times,
+            y=lower_band,
+            mode='lines',
+            name='Confidence Lower',
+            line=dict(width=0),
+            fill='tonexty',
+            fillcolor=f'rgba({"16, 185, 129" if pred_color == "#10b981" else "239, 68, 68" if pred_color == "#ef4444" else "245, 158, 11" if pred_color == "#f59e0b" else "107, 114, 128"}, 0.1)',
+            showlegend=False,
+            hoverinfo='skip'
+        ))
     
     # Dynamic title based on data source
     chart_title = f'Bitcoin Price Chart - Live Data ({data_source})'
@@ -695,177 +646,13 @@ with st.sidebar:
     st.markdown("**Built by Kevin Roy Maglaqui**")
 
 # Main content - NEW CLEAN LAYOUT
+# Large chart on left, compact metadata on right
 main_col, sidebar_col = st.columns([3, 1])
 
 with main_col:
-    # PREDICTION SECTION - FIRST THING USERS SEE
-    st.markdown("## 🎯 Generate AI Prediction")
-    
-    # Check API status
-    health = check_api_health()
-    
-    if health is None:
-        st.error("**API Service Unavailable**")
-    elif "error" in health:
-        st.error(f"**API Error:** {health['error']}")
-    elif not health.get('model_loaded', False):
-        st.warning("**Models Not Loaded** - Please wait...")
-    else:
-        # Model age check - simplified
-        age_warning = get_model_age_warning()
-        if age_warning and ("contact" in age_warning.lower() or "Consider updating" in age_warning):
-            st.info(f"ℹ️ {age_warning}")
-        
-        # Check if user can make predictions
-        can_predict = True
-        guest_message = ""
-        
-        if not st.session_state.api_key and st.session_state.guest_usage_count >= 3:
-            can_predict = False
-            guest_message = "🚫 Free trial exhausted (3/3 used)"
-        elif not st.session_state.api_key:
-            guest_message = f"👤 Guest: {st.session_state.guest_usage_count}/3 free"
-        
-        # Layout for button and message
-        btn_col1, btn_col2 = st.columns([1, 2])
-        
-        with btn_col1:
-            predict_btn = st.button(
-                "🔮 Predict", 
-                use_container_width=True, 
-                type="primary",
-                disabled=not can_predict
-            )
-        
-        with btn_col2:
-            if guest_message:
-                if can_predict:
-                    st.caption(guest_message)
-                else:
-                    st.error(guest_message)
-                    st.caption("👉 Enter API key in sidebar")
-        
-        if predict_btn:
-            with st.spinner("🤖 Analyzing market data..."):
-                result = make_prediction()
-                
-                if 'error' in result:
-                    if result.get('guest_limit') or result.get('auth_error'):
-                        st.error(f"🔑 {result['error']}")
-                        st.info("📧 Email **kevinroymaglaqui29@gmail.com** for API key")
-                    elif result.get('rate_limit'):
-                        st.error(f"⏱️ {result['error']}")
-                    else:
-                        st.error(f"❌ {result['error']}")
-                else:
-                    # Store prediction
-                    st.session_state.predictions_history.append(result)
-                    st.session_state.latest_prediction = result
-                    
-                    # Debug: Check if prediction has next_periods
-                    has_next_periods = 'next_periods' in result
-                    
-                    st.markdown("---")
-                    
-                    # Check if v1.1 enriched
-                    has_enriched = 'suggestion' in result and 'trend' in result
-                    
-                    if has_enriched:
-                        suggestion = result.get('suggestion', {})
-                        trend = result.get('trend', {})
-                        tags = result.get('tags', [])
-                        
-                        # Determine color
-                        action = suggestion.get('action', 'HOLD')
-                        if action == 'BUY':
-                            card_gradient = "linear-gradient(135deg, #10b981 0%, #059669 100%)"
-                            indicator = "🟢"
-                        elif action == 'SELL':
-                            card_gradient = "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)"
-                            indicator = "🔴"
-                        else:
-                            card_gradient = "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)"
-                            indicator = "🟡"
-                        
-                        # Clean prediction card
-                        st.markdown(f"""
-                        <div style="background: {card_gradient}; 
-                                    padding: 30px; border-radius: 16px; color: white; text-align: center;
-                                    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);">
-                            <h1 style="margin: 0;">{indicator} {action}</h1>
-                            <h3 style="margin: 12px 0;">Confidence: {result['confidence']:.1%} | Conviction: {suggestion.get('conviction', 'N/A')}</h3>
-                            <p style="font-size: 20px; margin: 8px 0;">Current Price: ${result['current_price']:,.2f}</p>
-                            <p style="font-size: 14px; opacity: 0.9; margin: 4px 0;">
-                                Trend: {trend.get('short_term', 'N/A')} (short) • {trend.get('long_term', 'N/A')} (long) • {trend.get('strength', 'N/A')}
-                            </p>
-                            <p style="font-size: 12px; opacity: 0.8;">Risk: {suggestion.get('risk_level', 'N/A')}</p>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
-                        # Tags
-                        if tags:
-                            st.markdown("<br>", unsafe_allow_html=True)
-                            tag_html = " ".join([f'<span style="background: #3b82f6; color: white; padding: 6px 14px; border-radius: 12px; font-size: 12px; margin: 3px; display: inline-block;">{tag}</span>' for tag in tags])
-                            st.markdown(f'<div style="text-align: center;">{tag_html}</div>', unsafe_allow_html=True)
-                        
-                        # Probabilities - compact
-                        st.markdown("<br>", unsafe_allow_html=True)
-                        prob_col1, prob_col2, prob_col3 = st.columns(3)
-                        with prob_col1:
-                            st.metric("No Move", f"{result['probabilities'].get('no_movement', 0):.0%}")
-                        with prob_col2:
-                            st.metric("⬆ Up", f"{result['probabilities'].get('large_up', 0):.0%}")
-                        with prob_col3:
-                            st.metric("⬇ Down", f"{result['probabilities'].get('large_down', 0):.0%}")
-                        
-                        # Reasoning - collapsible
-                        with st.expander("💡 View AI Reasoning", expanded=False):
-                            reasoning = suggestion.get('reasoning', [])
-                            if reasoning:
-                                for i, reason in enumerate(reasoning, 1):
-                                    st.markdown(f"{i}. {reason}")
-                            
-                            # Score breakdown
-                            st.markdown("---")
-                            st.markdown("**Score Breakdown:**")
-                            breakdown = suggestion.get('score_breakdown', {})
-                            col_s1, col_s2, col_s3 = st.columns(3)
-                            with col_s1:
-                                st.metric("Confidence", f"{breakdown.get('confidence_boost', 0):.2f}")
-                            with col_s2:
-                                st.metric("Trend", f"{breakdown.get('trend_score', 0):.2f}")
-                            with col_s3:
-                                st.metric("Total", f"{breakdown.get('total_score', 0):.2f}")
-                    
-                    else:
-                        # v1.0 fallback
-                        label = result['prediction_label']
-                        st.markdown(f"""
-                        <div style="background: linear-gradient(135deg, #1f2937 0%, #374151 100%); 
-                                    padding: 30px; border-radius: 16px; color: white; text-align: center;
-                                    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);">
-                            <h1>{label}</h1>
-                            <h3>Confidence: {result['confidence']:.1%}</h3>
-                            <p style="font-size: 20px;">Price: ${result['current_price']:,.2f}</p>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    
-                    st.success("✅ Prediction generated! Scroll down to see it overlaid on the live chart.")
-                    
-                    # Debug info
-                    with st.expander("🔍 Debug: Prediction Data", expanded=False):
-                        st.write(f"Has 'next_periods': {has_next_periods}")
-                        if has_next_periods:
-                            st.write(f"Number of periods: {len(result.get('next_periods', []))}")
-                            st.json(result.get('next_periods', []))
-                        else:
-                            st.warning("❌ No 'next_periods' in API response - overlay won't work!")
-                        st.write("**Full response keys:**")
-                        st.write(list(result.keys()))
-    
-    # CHART SECTION - BELOW PREDICTION
-    st.markdown("---")
+    # Live Bitcoin Price Chart - PRIMARY FOCUS
     st.markdown("### 📊 Live Bitcoin Market Data")
+    
     
     # Fetch and display current price (with multiple fallback sources)
     price_available = False
@@ -897,7 +684,7 @@ with main_col:
         error_msg = str(e)
         st.error(f"⚠️ **Unable to fetch Bitcoin price data**")
         st.caption(f"Error: {error_msg[:200]}")
-        st.info("💡 **The AI prediction feature below still works!**")
+        st.info("💡 **The AI prediction feature below still works!** It uses your deployed API server for predictions.")
     
     # Interactive chart with timeframe selector (only show if we can fetch data)
     if price_available:
@@ -919,21 +706,13 @@ with main_col:
                     st.info("📊 **Chart Data:** Using CryptoCompare (Binance unavailable in this region)")
                 
                 # Show toggle for prediction overlay if prediction exists
-                prediction_to_show = None
+                show_prediction = False
                 if st.session_state.latest_prediction:
-                    # Check if we have full overlay data (next_periods) or just simple marker
-                    has_full_overlay = 'next_periods' in st.session_state.latest_prediction
-                    overlay_type = "with projection line" if has_full_overlay else "with prediction marker"
-                    checkbox_label = f"Show AI Prediction Overlay ({overlay_type})"
-                    
-                    show_prediction = st.checkbox(checkbox_label, 
-                                                  value=True,  # Always default True
-                                                  help="Display the latest AI prediction on the chart",
-                                                  key="prediction_overlay_toggle")
-                    if show_prediction:
-                        prediction_to_show = st.session_state.latest_prediction
+                    show_prediction = st.checkbox("Show AI Prediction Overlay", value=True, 
+                                                  help="Display the latest AI prediction on the chart")
                 
                 # Create chart with or without prediction overlay
+                prediction_to_show = st.session_state.latest_prediction if show_prediction else None
                 chart = create_price_chart(chart_data, show_indicators=True, 
                                           data_source=chart_source, 
                                           prediction_result=prediction_to_show)
@@ -943,7 +722,7 @@ with main_col:
                 st.caption(f"Error: {status[:200]}")
                 st.info("💡 The AI prediction feature above still works!")
     else:
-        st.info("💡 **Chart temporarily unavailable** - Use the AI Prediction feature below to get forecasts!")
+        st.info("💡 **Chart temporarily unavailable** - Use the AI Prediction feature above to get forecasts!")
 
 with sidebar_col:
     # COMPACT METADATA BOX - Right side
@@ -959,121 +738,132 @@ with sidebar_col:
     info = get_model_info()
     
     if 'error' not in info:
-        # Extract metrics
+        # Extract metrics - they can be at root level or nested in metadata
         metadata = info.get('metadata', {})
         performance = info.get('performance', metadata.get('performance', {}))
         
-        # Ensemble Weights
-        st.markdown("**Ensemble Weights:**")
-        st.caption("• CatBoost: 40%")
-        st.caption("• Random Forest: 30%")
-        st.caption("• Logistic Regression: 30%")
+        # Basic model info
+        st.metric("Features", info.get('feature_count', info.get('n_features', 'N/A')))
+        st.metric("Sequence Length", info.get('sequence_length', 'N/A'))
+        
+        # Training info
+        training_date = info.get('training_date', metadata.get('training_date', None))
+        if training_date:
+            st.caption(f"📅 Trained: {training_date}")
         
         st.markdown("---")
+        st.markdown("**Test Performance**")
         
-        # Training Metrics
-        st.markdown("**Training Metrics:**")
+        # Extract accuracy from performance dict or direct metadata
         test_accuracy = performance.get('test_accuracy', metadata.get('performance', {}).get('test', {}).get('accuracy', None))
         if test_accuracy:
-            st.caption(f"Accuracy: {test_accuracy:.1%}")
+            st.metric("Accuracy", f"{test_accuracy:.2%}")
         
-        # Extract precision and recall
+        # Extract F1 score
+        test_f1 = performance.get('test_f1', metadata.get('performance', {}).get('test', {}).get('f1_macro', None))
+        if test_f1:
+            st.metric("F1 Score", f"{test_f1:.3f}")
+        
+        # Extract ROC AUC
+        test_roc = performance.get('test_roc_auc', metadata.get('performance', {}).get('test', {}).get('roc_auc_ovr', None))
+        if test_roc:
+            st.metric("ROC AUC", f"{test_roc:.3f}")
+        
+        # Extract precision and recall from nested performance
         nested_perf = metadata.get('performance', {}).get('test', {})
         if nested_perf:
             precision = nested_perf.get('precision_macro')
             recall = nested_perf.get('recall_macro')
             
             if precision:
-                st.caption(f"Precision: {precision:.1%}")
+                st.metric("Precision", f"{precision:.3f}")
             if recall:
-                st.caption(f"Recall: {recall:.1%}")
+                st.metric("Recall", f"{recall:.3f}")
         
+        # Show overfitting analysis if available
+        overfitting = metadata.get('performance', {}).get('overfitting_analysis', {})
+        if overfitting:
+            st.markdown("---")
+            st.markdown("**Model Analysis**")
+            acc_gap = overfitting.get('train_test_accuracy_gap')
+            if acc_gap:
+                st.caption(f"🔍 Accuracy Gap: {acc_gap:.2%}")
+                if acc_gap < 0.10:
+                    st.caption("✅ Low overfitting")
+                elif acc_gap < 0.20:
+                    st.caption("⚠️ Moderate overfitting")
+                else:
+                    st.caption("❌ High overfitting")
+    
+    # Prediction history
+    if st.session_state.predictions_history:
         st.markdown("---")
+        st.markdown("### Recent History")
         
-        # Testing Performance
-        st.markdown("**Testing Accuracy:**")
-        test_f1 = performance.get('test_f1', metadata.get('performance', {}).get('test', {}).get('f1_macro', None))
-        if test_f1:
-            st.caption(f"F1 Score: {test_f1:.3f}")
-        
-        test_roc = performance.get('test_roc_auc', metadata.get('performance', {}).get('test', {}).get('roc_auc_ovr', None))
-        if test_roc:
-            st.caption(f"ROC AUC: {test_roc:.3f}")
-        
-        st.markdown("---")
-        st.caption(f"🔢 Features: {info.get('feature_count', info.get('n_features', 70))}")
-        
-        # Training date
-        training_date = info.get('training_date', metadata.get('training_date', None))
-        if training_date:
-            st.caption(f"📅 {training_date[:10]}")
-    else:
-        st.error("Model info unavailable")
-    
-    st.markdown("---")
-    
-    # Technical Indicators List
-    st.markdown("**Technical Indicators:**")
-    indicators = [
-        "SMA (20, 50)",
-        "EMA (12, 26)",
-        "RSI",
-        "MACD",
-        "Bollinger Bands",
-        "Volume Analysis",
-        "Price Momentum",
-        "+ 63 more..."
-    ]
-    for indicator in indicators:
-        st.caption(f"• {indicator}")
-    
-    st.markdown("---")
-    
-    # User Warning Box
-    st.markdown("""
-    <div style="background: #fef3c7; border: 2px solid #f59e0b; 
-                padding: 16px; border-radius: 8px; margin-bottom: 16px;">
-        <strong style="color: #92400e;">⚠️ Development Notice</strong>
-        <p style="color: #78350f; font-size: 12px; margin: 8px 0 0 0;">
-            This is a demo. Models may occasionally malfunction. 
-            Take predictions with caution - not financial advice!
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-
-# Demo message and API integration info at the bottom
-st.markdown("---")
-demo_col1, demo_col2 = st.columns(2)
-
-with demo_col1:
-    st.markdown("""
-    <div style="background: #1f2937; color: white; padding: 20px; border-radius: 12px; height: 100%;">
-        <h4>🎯 About This Demo</h4>
-        <p style="font-size: 14px; margin: 8px 0;">
-            Demo of my Bitcoin AI forecasting API built with ensemble machine learning.
-        </p>
-        <p style="font-size: 14px; margin: 8px 0;">
-            <strong>Want to integrate this into your systems?</strong>
-        </p>
-        <p style="font-size: 13px; color: #9ca3af;">
-            📧 <strong>kevinroymaglaqui29@gmail.com</strong><br>
-            🌐 API: <code>btc-forecast-api.onrender.com</code>
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-
-with demo_col2:
-    st.markdown("""
-    <div style="background: #fef3c7; border: 2px solid #f59e0b; padding: 20px; border-radius: 12px; height: 100%;">
-        <h4 style="color: #92400e;">⚠️ Important Disclaimer</h4>
-        <p style="font-size: 13px; color: #78350f; margin: 8px 0;">
-            <strong>Development status:</strong> Models may malfunction.<br>
-            <strong>Not financial advice:</strong> Use predictions as ONE data point.<br>
-            <strong>Trade responsibly:</strong> Only invest what you can afford to lose.
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
+        for i, pred in enumerate(reversed(st.session_state.predictions_history[-5:])):
+            # Check if enriched v1.1 response
+            suggestion = pred.get('suggestion', {})
+            action = suggestion.get('action', None)
+            
+            # Determine icon
+            if action == 'BUY':
+                indicator = "🟢"
+            elif action == 'SELL':
+                indicator = "🔴"
+            elif action == 'HOLD':
+                indicator = "�"
+            else:
+                # Legacy fallback
+                label_indicators = {0: "⚫", 1: "🟢", 2: "🔴"}
+                indicator = label_indicators.get(pred.get('prediction'), "⚪")
+            
+            timestamp = pred.get('timestamp', 'N/A')[:19]
+            confidence = pred.get('confidence', 0)
+            
+            if action:
+                st.caption(f"{indicator} {timestamp} - {action} ({confidence:.1%})")
+            else:
+                st.caption(f"{indicator} {timestamp} - Confidence: {confidence:.1%}")
 
 # Footer
 st.markdown("---")
-st.caption("Built by Kevin Roy Maglaqui | Bitcoin AI Price Predictor v1.1")
+col_f1, col_f2 = st.columns(2)
+
+with col_f1:
+    st.markdown("### Key Features")
+    st.markdown("""
+    - Real-time market data integration
+    - 20 optimized technical indicators
+    - Ensemble machine learning models
+    - High-confidence prediction system
+    - Interactive chart with AI overlay
+    """)
+
+with col_f2:
+    st.markdown("### Applications")
+    st.markdown("""
+    - Swing trading signal generation
+    - Risk management planning
+    - Market sentiment analysis
+    - Strategic entry/exit timing
+    - Educational ML demonstration
+    """)
+
+st.markdown("---")
+st.error("""
+**⚠️ IMPORTANT DISCLAIMER** 
+
+This is an experimental AI prediction tool for educational and research purposes only. The system is **still in development** 
+and individual ensemble models may malfunction or produce inaccurate predictions. 
+
+**Take all forecasts with a grain of salt:**
+- Not financial advice or trading recommendations
+- Predictions should be ONE factor among many in your analysis
+- Past performance does not guarantee future results
+- Cryptocurrency markets are highly volatile and unpredictable
+- Always do your own research (DYOR)
+- Never invest more than you can afford to lose
+- Trade responsibly and at your own risk
+
+The creators assume no liability for any trading decisions made based on these predictions.
+""")
