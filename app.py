@@ -782,6 +782,12 @@ with col1:
                     api_version = result.get('api_version', '1.0')
                     has_enriched = 'suggestion' in result and 'trend' in result
                     
+                    # Debug info (can remove later)
+                    with st.expander("🔍 Debug: API Response", expanded=False):
+                        st.json(result)
+                        st.caption(f"API Version: {api_version} | Has Enriched: {has_enriched}")
+                        st.caption(f"Keys in response: {list(result.keys())}")
+                    
                     # Prediction label
                     label_indicators = {
                         "No Significant Movement": "◯",
@@ -826,6 +832,7 @@ with col1:
                             st.markdown(f'<div style="text-align: center;">{tag_html}</div>', unsafe_allow_html=True)
                     else:
                         # Legacy v1.0 display
+                        st.warning("⚠️ **Legacy API Response (v1.0)** - Backend not returning enriched v1.1 fields. Update your backend to see BUY/SELL/HOLD suggestions, trend analysis, and risk levels.")
                         st.markdown(f"""
                         <div style="background: linear-gradient(135deg, #1f2937 0%, #374151 100%); 
                                     padding: 32px; border-radius: 16px; color: white; text-align: center;
