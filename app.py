@@ -128,11 +128,15 @@ def get_model_info():
     except Exception as e:
         return {"error": f"Failed to get model info: {str(e)}"}
 
-def make_prediction(symbol="BTCUSDT", interval="1m"):
+def make_prediction(symbol="BTCUSDT", interval="1m", use_v1_1=True):
     try:
         headers = get_api_headers()
+        
+        # Use v1.1 endpoint for enriched response, fallback to v1.0 if it fails
+        endpoint = "/v1.1/predict" if use_v1_1 else "/predict"
+        
         response = requests.post(
-            f"{API_URL}/predict",
+            f"{API_URL}{endpoint}",
             json={
                 "symbol": symbol,
                 "interval": interval,
@@ -141,6 +145,11 @@ def make_prediction(symbol="BTCUSDT", interval="1m"):
             headers=headers,
             timeout=45
         )
+        
+        # If v1.1 fails with validation error, try v1.0 fallback
+        if response.status_code == 500 and use_v1_1 and 'validation error' in response.text.lower():
+            st.warning("⚠️ v1.1 endpoint has a bug, falling back to v1.0...")
+            return make_prediction(symbol, interval, use_v1_1=False)
         
         # Check if this was a guest request (no API key)
         # Backend increments guest usage automatically, so we track it here too
