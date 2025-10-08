@@ -113,7 +113,7 @@ def get_usage_info():
     except:
         return None
 
-@st.cache_data(ttl=3600)  # Cache for 1 hour
+@st.cache_data(ttl=300)  # Cache for 5 minutes
 def get_model_info():
     try:
         response = requests.get(f"{API_URL}/model/info", timeout=15)
@@ -941,8 +941,17 @@ with sidebar_col:
     </div>
     """, unsafe_allow_html=True)
     
+    # Refresh button
+    if st.button("🔄 Refresh Model Info", key="refresh_model_info"):
+        get_model_info.clear()
+        st.rerun()
+    
     # Get model info
     info = get_model_info()
+    
+    # DEBUG: Show what we're getting
+    with st.expander("🔍 Debug: Raw API Response", expanded=False):
+        st.json(info)
     
     if 'error' not in info:
         # Extract metrics
@@ -953,6 +962,9 @@ with sidebar_col:
         has_meta_learner = info.get('has_meta_learner', metadata.get('has_meta_learner', False))
         use_stacking = info.get('use_stacking', metadata.get('use_stacking', False))
         
+        # DEBUG
+        st.caption(f"🐛 has_meta_learner: {has_meta_learner}, use_stacking: {use_stacking}")
+        
         if has_meta_learner or use_stacking:
             st.markdown("**🧠 Stacked Ensemble + Meta-Learner**")
             st.caption("_Base models → Meta-learner → Final prediction_")
@@ -960,6 +972,10 @@ with sidebar_col:
         
         # Ensemble Weights - check both top level and metadata
         ensemble_weights = info.get('ensemble_weights', metadata.get('ensemble_weights', {}))
+        
+        # DEBUG
+        st.caption(f"🐛 ensemble_weights: {ensemble_weights}")
+        
         st.markdown("**Base Model Weights:**")
         
         if ensemble_weights:
