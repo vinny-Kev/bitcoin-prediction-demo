@@ -305,17 +305,40 @@ def create_price_chart(df, show_indicators=True, data_source="Binance", predicti
             prediction_times.append(future_time)
             prediction_prices.append(period['estimated_price'])
         
-        # Determine color based on prediction
-        pred_label = prediction_result.get('prediction_label', '')
-        if 'Upward' in pred_label:
+        # Determine color based on prediction (check for v1.1 suggestion first)
+        suggestion = prediction_result.get('suggestion', {})
+        action = suggestion.get('action', None)
+        
+        if action == 'BUY':
             pred_color = '#10b981'  # Green
-            pred_name = '▲ AI Prediction: Upward'
-        elif 'Downward' in pred_label:
+            pred_name = '▲ AI Prediction: BUY Signal'
+        elif action == 'SELL':
             pred_color = '#ef4444'  # Red
-            pred_name = '▼ AI Prediction: Downward'
+            pred_name = '▼ AI Prediction: SELL Signal'
+        elif action == 'HOLD':
+            pred_color = '#f59e0b'  # Orange
+            pred_name = '◯ AI Prediction: HOLD'
         else:
-            pred_color = '#6b7280'  # Gray
-            pred_name = '◯ AI Prediction: Neutral'
+            # Fallback to legacy prediction_label
+            pred_label = prediction_result.get('prediction_label', '')
+            if 'Upward' in pred_label:
+                pred_color = '#10b981'  # Green
+                pred_name = '▲ AI Prediction: Upward'
+            elif 'Downward' in pred_label:
+                pred_color = '#ef4444'  # Red
+                pred_name = '▼ AI Prediction: Downward'
+            else:
+                pred_color = '#6b7280'  # Gray
+                pred_name = '◯ AI Prediction: Neutral'
+        
+        # Add conviction and trend info to hover if available
+        hover_extra = f"<br>Confidence: {prediction_result.get('confidence', 0):.1%}"
+        if suggestion:
+            hover_extra += f"<br>Action: {action} ({suggestion.get('conviction', 'N/A')})"
+            hover_extra += f"<br>Risk: {suggestion.get('risk_level', 'N/A')}"
+        trend = prediction_result.get('trend', {})
+        if trend:
+            hover_extra += f"<br>Trend: {trend.get('short_term', 'N/A')} / {trend.get('long_term', 'N/A')}"
         
         # Add prediction line
         fig.add_trace(go.Scatter(
@@ -326,7 +349,7 @@ def create_price_chart(df, show_indicators=True, data_source="Binance", predicti
             line=dict(color=pred_color, width=3, dash='dash'),
             marker=dict(size=10, symbol='star', color=pred_color),
             opacity=0.9,
-            hovertemplate='<b>Predicted Price</b><br>$%{y:,.2f}<br>%{x}<extra></extra>'
+            hovertemplate=f'<b>Predicted Price</b><br>$%{{y:,.2f}}<br>%{{x}}{hover_extra}<extra></extra>'
         ))
         
         # Add confidence band
@@ -351,7 +374,7 @@ def create_price_chart(df, show_indicators=True, data_source="Binance", predicti
             name='Confidence Lower',
             line=dict(width=0),
             fill='tonexty',
-            fillcolor=f'rgba({"16, 185, 129" if "Upward" in pred_label else "239, 68, 68" if "Downward" in pred_label else "107, 114, 128"}, 0.1)',
+            fillcolor=f'rgba({"16, 185, 129" if pred_color == "#10b981" else "239, 68, 68" if pred_color == "#ef4444" else "245, 158, 11" if pred_color == "#f59e0b" else "107, 114, 128"}, 0.1)',
             showlegend=False,
             hoverinfo='skip'
         ))
@@ -755,6 +778,10 @@ with col1:
                     st.markdown("---")
                     st.markdown("### ✨ Prediction Results")
                     
+                    # Check if we have v1.1 enriched response
+                    api_version = result.get('api_version', '1.0')
+                    has_enriched = 'suggestion' in result and 'trend' in result
+                    
                     # Prediction label
                     label_indicators = {
                         "No Significant Movement": "◯",
@@ -765,15 +792,49 @@ with col1:
                     label = result['prediction_label']
                     indicator = label_indicators.get(label, "●")
                     
-                    st.markdown(f"""
-                    <div style="background: linear-gradient(135deg, #1f2937 0%, #374151 100%); 
-                                padding: 32px; border-radius: 16px; color: white; text-align: center;
-                                box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);">
-                        <h1>{indicator} {label}</h1>
-                        <h2>Confidence Level: {result['confidence']:.1%}</h2>
-                        <p style="font-size: 18px;">Current BTC Price: ${result['current_price']:,.2f}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    # Main prediction card with enriched info
+                    if has_enriched:
+                        suggestion = result.get('suggestion', {})
+                        trend = result.get('trend', {})
+                        tags = result.get('tags', [])
+                        
+                        # Determine card color based on action
+                        action = suggestion.get('action', 'HOLD')
+                        if action == 'BUY':
+                            card_gradient = "linear-gradient(135deg, #10b981 0%, #059669 100%)"
+                        elif action == 'SELL':
+                            card_gradient = "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)"
+                        else:
+                            card_gradient = "linear-gradient(135deg, #1f2937 0%, #374151 100%)"
+                        
+                        st.markdown(f"""
+                        <div style="background: {card_gradient}; 
+                                    padding: 32px; border-radius: 16px; color: white; text-align: center;
+                                    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);">
+                            <h1>{indicator} {label}</h1>
+                            <h2>Confidence: {result['confidence']:.1%} | Action: {action} ({suggestion.get('conviction', 'N/A')})</h2>
+                            <p style="font-size: 18px;">Current BTC Price: ${result['current_price']:,.2f}</p>
+                            <p style="font-size: 14px; opacity: 0.9;">Trend: {trend.get('short_term', 'N/A')} (short) | {trend.get('long_term', 'N/A')} (long) | Strength: {trend.get('strength', 'N/A')}</p>
+                            <p style="font-size: 12px; opacity: 0.8;">Risk Level: {suggestion.get('risk_level', 'N/A')} | API v{api_version}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # Tags display
+                        if tags:
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            tag_html = " ".join([f'<span style="background: #3b82f6; color: white; padding: 4px 12px; border-radius: 12px; font-size: 12px; margin: 2px;">{tag}</span>' for tag in tags])
+                            st.markdown(f'<div style="text-align: center;">{tag_html}</div>', unsafe_allow_html=True)
+                    else:
+                        # Legacy v1.0 display
+                        st.markdown(f"""
+                        <div style="background: linear-gradient(135deg, #1f2937 0%, #374151 100%); 
+                                    padding: 32px; border-radius: 16px; color: white; text-align: center;
+                                    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);">
+                            <h1>{indicator} {label}</h1>
+                            <h2>Confidence Level: {result['confidence']:.1%}</h2>
+                            <p style="font-size: 18px;">Current BTC Price: ${result['current_price']:,.2f}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
                     
                     st.markdown("<br>", unsafe_allow_html=True)
                     
@@ -782,21 +843,61 @@ with col1:
                     with col_prob1:
                         st.metric(
                             "No Movement",
-                            f"{result['probabilities']['no_movement']:.1%}",
+                            f"{result['probabilities'].get('no_movement', result['probabilities'].get('additionalProp1', 0)):.1%}",
                             help="Probability of no significant price change"
                         )
                     with col_prob2:
                         st.metric(
                             "Large Upward",
-                            f"{result['probabilities']['large_up']:.1%}",
+                            f"{result['probabilities'].get('large_up', result['probabilities'].get('additionalProp2', 0)):.1%}",
                             help="Probability of large upward movement"
                         )
                     with col_prob3:
                         st.metric(
                             "Large Downward",
-                            f"{result['probabilities']['large_down']:.1%}",
+                            f"{result['probabilities'].get('large_down', result['probabilities'].get('additionalProp3', 0)):.1%}",
                             help="Probability of large downward movement"
                         )
+                    
+                    # Show enriched suggestion details (v1.1)
+                    if has_enriched and suggestion:
+                        st.markdown("---")
+                        st.markdown("### 💡 AI Suggestion & Analysis")
+                        
+                        col_sug1, col_sug2 = st.columns([2, 1])
+                        
+                        with col_sug1:
+                            # Reasoning
+                            st.markdown("**Reasoning:**")
+                            reasoning = suggestion.get('reasoning', [])
+                            if reasoning:
+                                for i, reason in enumerate(reasoning, 1):
+                                    st.markdown(f"{i}. {reason}")
+                            else:
+                                st.caption("No reasoning provided")
+                        
+                        with col_sug2:
+                            # Score breakdown
+                            st.markdown("**Score Breakdown:**")
+                            breakdown = suggestion.get('score_breakdown', {})
+                            st.metric("Confidence Boost", f"{breakdown.get('confidence_boost', 0):.2f}")
+                            st.metric("Trend Score", f"{breakdown.get('trend_score', 0):.2f}")
+                            st.metric("Total Score", f"{breakdown.get('total_score', 0):.2f}")
+                        
+                        # Risk indicator
+                        risk_level = suggestion.get('risk_level', 'UNKNOWN')
+                        risk_colors = {
+                            'LOW': '#10b981',
+                            'MEDIUM': '#f59e0b',
+                            'HIGH': '#ef4444',
+                            'EXTREME': '#dc2626'
+                        }
+                        risk_color = risk_colors.get(risk_level, '#6b7280')
+                        st.markdown(f"""
+                        <div style="background: {risk_color}; color: white; padding: 12px; border-radius: 8px; text-align: center; margin-top: 12px;">
+                            <strong>Risk Level: {risk_level}</strong>
+                        </div>
+                        """, unsafe_allow_html=True)
                     
                     # Price projection chart
                     if result.get('next_periods'):
@@ -975,15 +1076,29 @@ with col2:
         st.markdown("### Recent History")
         
         for i, pred in enumerate(reversed(st.session_state.predictions_history[-5:])):
-            label_indicators = {
-                0: "⚫",
-                1: "�", 
-                2: "🔴"
-            }
-            indicator = label_indicators.get(pred['prediction'], "⚪")
+            # Check if enriched v1.1 response
+            suggestion = pred.get('suggestion', {})
+            action = suggestion.get('action', None)
             
-            st.caption(f"{indicator} {pred['timestamp'][:19]}")
-            st.caption(f"   Confidence: {pred['confidence']:.1%}")
+            # Determine icon
+            if action == 'BUY':
+                indicator = "🟢"
+            elif action == 'SELL':
+                indicator = "🔴"
+            elif action == 'HOLD':
+                indicator = "�"
+            else:
+                # Legacy fallback
+                label_indicators = {0: "⚫", 1: "🟢", 2: "🔴"}
+                indicator = label_indicators.get(pred.get('prediction'), "⚪")
+            
+            timestamp = pred.get('timestamp', 'N/A')[:19]
+            confidence = pred.get('confidence', 0)
+            
+            if action:
+                st.caption(f"{indicator} {timestamp} - {action} ({confidence:.1%})")
+            else:
+                st.caption(f"{indicator} {timestamp} - Confidence: {confidence:.1%}")
 
 # Footer
 st.markdown("---")
